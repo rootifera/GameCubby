@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, UTC
 
 def format_igdb_game(game):
     cover_url = None
@@ -6,7 +6,7 @@ def format_igdb_game(game):
         cover_url = "https:" + game["cover"]["url"].replace("t_thumb", "t_cover_big")
     release_date = None
     if game.get("first_release_date"):
-        release_date = datetime.utcfromtimestamp(game["first_release_date"]).strftime("%Y-%m-%d")
+        release_date = datetime.fromtimestamp(game["first_release_date"], UTC).strftime("%Y-%m-%d")
     platforms = [
         {"id": p["id"], "name": p["name"]}
         for p in game.get("platforms", [])
