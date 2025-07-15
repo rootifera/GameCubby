@@ -1,6 +1,6 @@
 import os
 from sqlalchemy import create_engine
-from models.platform import Base
+from .models import Base
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./gamecubby.db")
 engine = create_engine(
