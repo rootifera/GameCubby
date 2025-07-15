@@ -9,9 +9,8 @@ class Game(BaseModel):
     igdb_id: int | None = None
     name: str
     summary: str | None = None
-    release_date: str | None = None
+    release_date: int | None = None
     cover_url: str | None = None
-    played: bool | None = None
     condition: int | None = None
     location_id: int | None = None
     order: int | None = None
@@ -24,7 +23,7 @@ class GameCreate(BaseModel):
     igdb_id: int | None = None
     name: str
     summary: str | None = None
-    release_date: str | None = None
+    release_date: int | None = None
     cover_url: str | None = None
     condition: int | None = None
     location_id: int | None = None
@@ -34,7 +33,7 @@ class GameUpdate(BaseModel):
     name: str | None = None
     igdb_id: int | None = None
     summary: str | None = None
-    release_date: str | None = None
+    release_date: int | None = None
     cover_url: str | None = None
     condition: int | None = None
     location_id: int | None = None

@@ -4,17 +4,17 @@ from ..models.tag import Tag
 def upsert_tag(session: Session, tag_name: str):
     """
     Insert or fetch a tag by name (case-insensitive).
+    Always stores tag names as lowercase.
     Returns the Tag object.
     """
-    # case-insensitive
-    tag = session.query(Tag).filter(Tag.name.ilike(tag_name)).first()
+    tag_name = tag_name.lower().strip()
+    tag = session.query(Tag).filter(Tag.name == tag_name).first()
     if not tag:
         tag = Tag(name=tag_name)
         session.add(tag)
         session.commit()
         session.refresh(tag)
     return tag
-
 def get_tag(session: Session, tag_id: int):
     """
     Retrieve a tag by ID.
