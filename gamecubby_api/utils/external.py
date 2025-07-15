@@ -31,3 +31,54 @@ async def get_igdb_token():
         expires_in = token_data.get("expires_in", 3600)
         _igdb_token_expiry = time.time() + expires_in - 300
         return _igdb_token
+
+
+async def fetch_igdb_game(igdb_id: int):
+    CLIENT_ID = os.getenv("CLIENT_ID")
+    IGDB_URL = "https://api.igdb.com/v4/games"
+    token = await get_igdb_token()
+    headers = {
+        "Client-ID": CLIENT_ID,
+        "Authorization": f"Bearer {token}",
+    }
+    query = (
+        f"fields id, name, summary, cover.url, first_release_date, platforms.id, platforms.name, collection, collection.name;"
+        f" where id = {igdb_id};"
+    )
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(IGDB_URL, data=query, headers=headers)
+    resp.raise_for_status()
+    games = resp.json()
+    if not games:
+        return None
+    return games[0]
+
+async def fetch_igdb_collection(game_id: int):
+    import os
+    import httpx
+    token = await get_igdb_token()
+    CLIENT_ID = os.getenv("CLIENT_ID")
+    COLLECTION_MEMBERSHIP_URL = "https://api.igdb.com/v4/collection_memberships"
+    headers = {
+        "Client-ID": CLIENT_ID,
+        "Authorization": f"Bearer {token}",
+    }
+    query = f"fields collection; where game = {game_id};"
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(COLLECTION_MEMBERSHIP_URL, data=query, headers=headers)
+    resp.raise_for_status()
+    memberships = resp.json()
+    if not memberships:
+        return []
+    collection_ids = [m["collection"] for m in memberships if m.get("collection")]
+    # 2. Get names for each collection ID
+    if not collection_ids:
+        return []
+    COLLECTION_URL = "https://api.igdb.com/v4/collections"
+    query = f"fields id, name; where id = ({','.join(str(cid) for cid in collection_ids)});"
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(COLLECTION_URL, data=query, headers=headers)
+    resp.raise_for_status()
+    collections = resp.json()
+    # Return as list of {id, name}
+    return [{"id": c["id"], "name": c["name"]} for c in collections]
