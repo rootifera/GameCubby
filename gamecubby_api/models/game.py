@@ -20,5 +20,8 @@ class Game(Base):
     collection_id = Column(Integer, ForeignKey("collections.id"), nullable=True)
     collection = relationship("Collection")
 
+    platforms = relationship("Platform", secondary="game_platforms", back_populates="games")
+    tags = relationship("Tag", secondary="game_tags", back_populates="games")
+
     def __repr__(self):
         return f"<Game(id={self.id}, name={self.name}, igdb_id={self.igdb_id})>"

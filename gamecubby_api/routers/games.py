@@ -5,7 +5,7 @@ from ..schemas.game import (
     Game as GameSchema,
     GameCreate,
     GameUpdate,
-    AssignLocationRequest,
+    AssignLocationRequest, AddGameFromIGDBRequest,
 )
 from ..utils.game import (
     list_games,
@@ -15,7 +15,7 @@ from ..utils.game import (
     delete_game,
     list_games_by_tag,
     list_games_by_platform,
-    list_games_by_location,
+    list_games_by_location, add_game_from_igdb,
 )
 from ..utils.game_tag import attach_tag, detach_tag, list_tags_for_game
 from ..utils.game_platform import attach_platform, detach_platform, list_platforms_for_game
@@ -88,6 +88,24 @@ def assign_location(game_id: int, req: AssignLocationRequest, db: Session = Depe
     if not updated:
         raise HTTPException(status_code=404, detail="Game not found")
     return updated
+
+
+@router.post("/from_igdb", response_model=GameSchema)
+async def add_game_from_igdb_endpoint(
+    req: AddGameFromIGDBRequest, db: Session = Depends(get_db)
+):
+    game = await add_game_from_igdb(
+        db,
+        igdb_id=req.igdb_id,
+        platform_ids=req.platform_ids,
+        location_id=req.location_id,
+        tag_ids=req.tag_ids,
+        condition=req.condition,
+        order=req.order,
+    )
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found on IGDB")
+    return game
 
 
 @router.post("/", response_model=GameSchema)

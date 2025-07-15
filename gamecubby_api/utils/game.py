@@ -1,11 +1,36 @@
 from sqlalchemy.orm import Session
 from ..models.game import Game
+from ..utils.external import fetch_igdb_game, fetch_igdb_collection
+from ..utils.platform import upsert_platform
+from ..utils.collection import create_collection
+from ..models.game import Game
+from ..models.platform import Platform
+from ..models.tag import Tag
+from ..models.collection import Collection
+from sqlalchemy.orm import selectinload
 
-def list_games(session: Session):
-    return session.query(Game).order_by(Game.name).all()
+def list_games(session):
+    return (
+        session.query(Game)
+        .options(
+            selectinload(Game.platforms),
+            selectinload(Game.tags),
+            selectinload(Game.collection),
+        )
+        .all()
+    )
 
-def get_game(session: Session, game_id: int):
-    return session.query(Game).filter_by(id=game_id).first()
+def get_game(session, game_id):
+    return (
+        session.query(Game)
+        .options(
+            selectinload(Game.platforms),
+            selectinload(Game.tags),
+            selectinload(Game.collection),
+        )
+        .filter_by(id=game_id)
+        .first()
+    )
 
 def create_game(session: Session, game_data: dict):
     from ..models.game import Game
@@ -66,3 +91,72 @@ def list_games_by_location(session: Session, location_id: int):
         .order_by(Game.name)
         .all()
     )
+
+
+def upsert_collection(session, collection_obj):
+    existing = session.query(Collection).filter_by(igdb_id=collection_obj["id"]).first()
+    if not existing:
+        existing = session.query(Collection).filter_by(name=collection_obj["name"]).first()
+    if existing:
+        return existing
+    return create_collection(session, {"igdb_id": collection_obj["id"], "name": collection_obj["name"]})
+
+async def add_game_from_igdb(
+    session,
+    igdb_id: int,
+    platform_ids: list[int],
+    location_id: int | None = None,
+    tag_ids: list[int] = [],
+    condition: int | None = None,
+    order: int | None = None
+):
+    from ..utils.formatting import format_igdb_game
+
+    raw = await fetch_igdb_game(igdb_id)
+    if not raw:
+        return None
+
+    game_data = format_igdb_game(raw)
+    name = game_data["name"]
+    summary = game_data["summary"]
+    release_date = game_data["release_date"]
+    cover_url = game_data["cover_url"]
+
+    collection_list = await fetch_igdb_collection(igdb_id)
+    collection_id = None
+    collection = None
+    first_collection = collection_list[0] if collection_list else None
+
+    if first_collection:
+        collection = upsert_collection(session, first_collection)
+        collection_id = collection.id
+
+    game = Game(
+        igdb_id=igdb_id,
+        name=name,
+        summary=summary,
+        release_date=release_date,
+        cover_url=cover_url,
+        location_id=location_id,
+        condition=condition,
+        order=order,
+        collection_id=collection_id,
+    )
+    session.add(game)
+
+    igdb_platforms = {p["id"]: p for p in game_data.get("platforms", [])}
+    for platform_id in platform_ids:
+        platform = session.query(Platform).filter_by(id=platform_id).first()
+        if not platform and platform_id in igdb_platforms:
+            platform = upsert_platform(session, igdb_platforms[platform_id])
+        if platform and platform not in game.platforms:
+            game.platforms.append(platform)
+
+    for tag_id in tag_ids:
+        tag = session.query(Tag).filter_by(id=tag_id).first()
+        if tag and tag not in game.tags:
+            game.tags.append(tag)
+
+    session.commit()
+    session.refresh(game)
+    return game
