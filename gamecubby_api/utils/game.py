@@ -1,7 +1,6 @@
 from sqlalchemy.orm import Session
 
 from .location import get_location_path
-from ..models.game import Game
 from ..models.location import Location
 from ..utils.external import fetch_igdb_game, fetch_igdb_collection
 from ..utils.platform import upsert_platform
@@ -11,7 +10,7 @@ from ..models.platform import Platform
 from ..models.tag import Tag
 from ..models.collection import Collection
 from sqlalchemy.orm import selectinload
-from typing import List, Dict, Optional
+from typing import List, Optional
 
 
 def get_game(session: Session, game_id: int) -> Optional[Game]:
@@ -37,7 +36,6 @@ def get_game(session: Session, game_id: int) -> Optional[Game]:
 
 
 def list_games(session: Session) -> List[Game]:
-    # Get all games with relationships
     games = (
         session.query(Game)
         .options(
@@ -48,7 +46,6 @@ def list_games(session: Session) -> List[Game]:
         .all()
     )
 
-    # Get all unique location IDs in the hierarchy
     location_ids = set()
     for game in games:
         if game.location_id:
@@ -58,7 +55,6 @@ def list_games(session: Session) -> List[Game]:
                 loc = session.query(Location.parent_id).filter_by(id=current_id).first()
                 current_id = loc[0] if loc else None
 
-    # Fetch all locations in one query
     locations = (
         session.query(Location)
         .filter(Location.id.in_(location_ids))
@@ -67,12 +63,10 @@ def list_games(session: Session) -> List[Game]:
 
     loc_dict = {loc.id: loc for loc in locations}
 
-    # Build paths for each game
     for game in games:
         game.location_path = []
         current_id = game.location_id
 
-        # Walk up the hierarchy
         while current_id in loc_dict:
             loc = loc_dict[current_id]
             game.location_path.insert(0, {
@@ -84,7 +78,7 @@ def list_games(session: Session) -> List[Game]:
     return games
 
 def create_game(session: Session, game_data: dict):
-    from ..models.game import Game
+    game_data['igdb_id'] = 0 # manually added games get 0 as the default id, which makes them editable.
     game = Game(**game_data)
     session.add(game)
     session.commit()
