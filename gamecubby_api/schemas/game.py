@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import Optional, List
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict
 from .platform import Platform
 from .tag import Tag
 from .collection import Collection
@@ -16,7 +16,7 @@ class Game(BaseModel):
     release_date: Optional[int]
     cover_url: Optional[str]
     condition: Optional[int]
-    location_path: List[int] = []
+    location_path: List[Dict[str, str]] = Field(default=[])
     order: Optional[int]
     platforms: List[Platform] = []
     tags: List[Tag] = []

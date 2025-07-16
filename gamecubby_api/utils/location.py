@@ -24,24 +24,33 @@ def list_all_locations(session: Session):
     """List all locations in the system."""
     return session.query(Location).order_by(Location.name).all()
 
-def get_location_path(session: Session, game_id: int) -> list[int]:
-    """
-    Given a game ID, return the full path of locations (from top-level to bottom-level).
-    The path will be a list of location IDs.
-    """
-    path_ids = []
 
+def get_location_path(session: Session, game_id: int) -> list[dict]:
+    """
+    Returns complete location path from root to game's location.
+    Guaranteed order: [root, ..., parent, current]
+    Empty list if game has no location.
+    """
+    path = []
     game = session.query(Game).filter_by(id=game_id).first()
+
     if not game or not game.location_id:
-        return path_ids
+        return path
 
-    current = session.query(Location).filter_by(id=game.location_id).first()
+    current_id = game.location_id
+    location_ids = []
+    while current_id:
+        location_ids.append(current_id)
+        loc = session.query(Location.parent_id).filter_by(id=current_id).first()
+        current_id = loc[0] if loc else None
 
-    while current:
-        path_ids.insert(0, current.id)
-        if current.parent_id:
-            current = session.query(Location).filter_by(id=current.parent_id).first()
-        else:
-            current = None
+    locations = session.query(Location).filter(Location.id.in_(location_ids)).all()
+    loc_dict = {loc.id: loc for loc in locations}
 
-    return path_ids
+    path = [
+        {"id": loc.id, "name": loc.name}
+        for loc_id in reversed(location_ids)
+        if (loc := loc_dict.get(loc_id))
+    ]
+
+    return path

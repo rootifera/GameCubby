@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 
 from .location import get_location_path
 from ..models.game import Game
+from ..models.location import Location
 from ..utils.external import fetch_igdb_game, fetch_igdb_collection
 from ..utils.platform import upsert_platform
 from ..utils.collection import create_collection
@@ -10,34 +11,76 @@ from ..models.platform import Platform
 from ..models.tag import Tag
 from ..models.collection import Collection
 from sqlalchemy.orm import selectinload
+from typing import List, Dict, Optional
 
-def get_game(session, game_id):
+
+def get_game(session: Session, game_id: int) -> Optional[Game]:
     game = (
         session.query(Game)
         .options(
             selectinload(Game.platforms),
             selectinload(Game.tags),
-            selectinload(Game.collection),
+            selectinload(Game.collection)
         )
         .filter_by(id=game_id)
         .first()
     )
+
     if game:
-        game.location_path = get_location_path(session, game_id)
+        # Add location path data
+        game.location_path = [
+            {"id": str(loc["id"]), "name": loc["name"]}
+            for loc in get_location_path(session, game.id)
+        ]
+
     return game
 
-def list_games(session):
+
+def list_games(session: Session) -> List[Game]:
+    # Get all games with relationships
     games = (
         session.query(Game)
         .options(
             selectinload(Game.platforms),
             selectinload(Game.tags),
-            selectinload(Game.collection),
+            selectinload(Game.collection)
         )
         .all()
     )
+
+    # Get all unique location IDs in the hierarchy
+    location_ids = set()
     for game in games:
-        game.location_path = get_location_path(session, game.id)
+        if game.location_id:
+            current_id = game.location_id
+            while current_id:
+                location_ids.add(current_id)
+                loc = session.query(Location.parent_id).filter_by(id=current_id).first()
+                current_id = loc[0] if loc else None
+
+    # Fetch all locations in one query
+    locations = (
+        session.query(Location)
+        .filter(Location.id.in_(location_ids))
+        .all()
+    ) if location_ids else []
+
+    loc_dict = {loc.id: loc for loc in locations}
+
+    # Build paths for each game
+    for game in games:
+        game.location_path = []
+        current_id = game.location_id
+
+        # Walk up the hierarchy
+        while current_id in loc_dict:
+            loc = loc_dict[current_id]
+            game.location_path.insert(0, {
+                "id": str(loc.id),
+                "name": loc.name
+            })
+            current_id = loc.parent_id
+
     return games
 
 def create_game(session: Session, game_data: dict):

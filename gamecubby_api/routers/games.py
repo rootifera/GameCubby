@@ -109,11 +109,28 @@ async def add_game_from_igdb_endpoint(
         raise HTTPException(status_code=404, detail="Game not found on IGDB")
     return game
 
-@router.get("/game/{game_id}/location_path")
-async def get_game_location_path(game_id: int, db: Session = Depends(get_db)):
+@router.get("/game/{game_id}/location_path", response_model=dict)
+async def get_game_location_path(
+    game_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Returns complete location hierarchy for a game.
+    Example response:
+    {
+        "location_path": [
+            {"id": 1, "name": "bookcase1"},
+            {"id": 4, "name": "shelf3"},
+            {"id": 6, "name": "box2"}
+        ]
+    }
+    """
     path = get_location_path(db, game_id)
     if not path:
-        raise HTTPException(status_code=404, detail="Location path not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Game has no location assigned"
+        )
     return {"location_path": path}
 
 @router.post("/", response_model=GameSchema)
