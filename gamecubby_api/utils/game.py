@@ -91,16 +91,22 @@ def create_game(session: Session, game_data: dict):
     session.refresh(game)
     return game
 
-def update_game(session: Session, game_id: int, game_data: dict):
-    from ..models.game import Game
+
+def update_game(session: Session, game_id: int, update_data: dict) -> Optional[Game]:
     game = session.query(Game).filter_by(id=game_id).first()
     if not game:
         return None
-    for key, value in game_data.items():
+
+    if game.igdb_id != 0:
+        raise ValueError("Cannot update IGDB-sourced games")
+
+    update_data.pop('igdb_id', None)
+
+    for key, value in update_data.items():
         if value is not None:
             setattr(game, key, value)
+
     session.commit()
-    session.refresh(game)
     return game
 
 def delete_game(session: Session, game_id: int):

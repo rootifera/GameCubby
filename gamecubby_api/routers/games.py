@@ -37,11 +37,18 @@ def get_game_by_id(game_id: int, db: Session = Depends(get_db)):
     return game
 
 @router.put("/{game_id}", response_model=GameSchema)
-def edit_game(game_id: int, game: GameUpdate, db: Session = Depends(get_db)):
-    updated = update_game(db, game_id, game.dict())
-    if not updated:
-        raise HTTPException(status_code=404, detail="Game not found")
-    return updated
+def edit_game(
+    game_id: int,
+    game: GameUpdate,
+    db: Session = Depends(get_db)
+):
+    try:
+        updated = update_game(db, game_id, game.dict())
+        if not updated:
+            raise HTTPException(status_code=404, detail="Game not found")
+        return updated
+    except ValueError as e:
+        raise HTTPException(status_code=403, detail=str(e))
 
 
 @router.delete("/{game_id}", response_model=bool)

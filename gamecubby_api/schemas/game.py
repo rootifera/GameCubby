@@ -38,7 +38,6 @@ class GameCreate(BaseModel):
 
 class GameUpdate(BaseModel):
     name: str | None = None
-    igdb_id: int | None = None
     summary: str | None = None
     release_date: int | None = None
     cover_url: str | None = None
