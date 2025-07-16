@@ -1,4 +1,6 @@
 from sqlalchemy.orm import Session
+
+from .location import get_location_path
 from ..models.game import Game
 from ..utils.external import fetch_igdb_game, fetch_igdb_collection
 from ..utils.platform import upsert_platform
@@ -9,19 +11,8 @@ from ..models.tag import Tag
 from ..models.collection import Collection
 from sqlalchemy.orm import selectinload
 
-def list_games(session):
-    return (
-        session.query(Game)
-        .options(
-            selectinload(Game.platforms),
-            selectinload(Game.tags),
-            selectinload(Game.collection),
-        )
-        .all()
-    )
-
 def get_game(session, game_id):
-    return (
+    game = (
         session.query(Game)
         .options(
             selectinload(Game.platforms),
@@ -31,6 +22,23 @@ def get_game(session, game_id):
         .filter_by(id=game_id)
         .first()
     )
+    if game:
+        game.location_path = get_location_path(session, game_id)
+    return game
+
+def list_games(session):
+    games = (
+        session.query(Game)
+        .options(
+            selectinload(Game.platforms),
+            selectinload(Game.tags),
+            selectinload(Game.collection),
+        )
+        .all()
+    )
+    for game in games:
+        game.location_path = get_location_path(session, game.id)
+    return games
 
 def create_game(session: Session, game_data: dict):
     from ..models.game import Game

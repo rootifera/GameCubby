@@ -16,7 +16,7 @@ class Game(BaseModel):
     release_date: Optional[int]
     cover_url: Optional[str]
     condition: Optional[int]
-    location_id: Optional[int]
+    location_path: List[int] = []
     order: Optional[int]
     platforms: List[Platform] = []
     tags: List[Tag] = []
