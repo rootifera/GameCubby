@@ -21,6 +21,8 @@ from ..utils.game_tag import attach_tag, detach_tag, list_tags_for_game
 from ..utils.game_platform import attach_platform, detach_platform, list_platforms_for_game
 from ..schemas.tag import Tag as TagSchema
 from ..schemas.platform import Platform as PlatformSchema
+from ..utils.location import get_location_path
+
 router = APIRouter(prefix="/games", tags=["Games"])
 
 @router.get("/", response_model=list[GameSchema])
@@ -107,6 +109,12 @@ async def add_game_from_igdb_endpoint(
         raise HTTPException(status_code=404, detail="Game not found on IGDB")
     return game
 
+@router.get("/game/{game_id}/location_path")
+async def get_game_location_path(game_id: int, db: Session = Depends(get_db)):
+    path = get_location_path(db, game_id)
+    if not path:
+        raise HTTPException(status_code=404, detail="Location path not found")
+    return {"location_path": path}
 
 @router.post("/", response_model=GameSchema)
 def add_game(game: GameCreate, db: Session = Depends(get_db)):
