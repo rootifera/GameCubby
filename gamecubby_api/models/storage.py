@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String
 from ..models import Base
 
 
-class File(Base):
+class GameFile(Base):
     __tablename__ = "files"
 
     id = Column(Integer, primary_key=True)

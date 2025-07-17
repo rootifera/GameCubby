@@ -10,6 +10,7 @@ from .routers.locations import router as locations_router
 from .routers.platforms import router as platforms_router
 from .routers.games import router as games_router
 from .routers.collections import router as collections_router
+from .routers.storage import router as storage_router
 from .utils.storage import ensure_game_folders
 
 load_dotenv()
@@ -28,7 +29,7 @@ app.include_router(locations_router)
 app.include_router(platforms_router)
 app.include_router(games_router)
 app.include_router(collections_router)
-
+app.include_router(storage_router)
 @app.get("/")
 def read_root():
     return {"message": "GameCubby API is alive!"}

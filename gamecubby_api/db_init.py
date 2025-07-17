@@ -3,6 +3,7 @@ from sqlalchemy import create_engine
 from .models import Base
 from .models import platform, tag, game_tag, location, game, collection
 from .models import game_platform
+from .models.storage import GameFile
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./gamecubby.db")
 engine = create_engine(
