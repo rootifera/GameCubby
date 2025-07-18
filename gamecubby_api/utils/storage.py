@@ -1,12 +1,13 @@
 import re
-import unicodedata
 from pathlib import Path
+
+import sqlalchemy.exc
 from sqlalchemy.orm import Session
 from ..models.game import Game
 from ..db import get_db
 import logging
 from fastapi import UploadFile
-import shutil
+import aiofiles
 from typing import Literal
 from ..models.storage import GameFile
 
@@ -40,13 +41,13 @@ def _create_single_game_folders(db: Session, game: Game) -> str:
     return str(base_path)
 
 
-def upload_and_register_file(
+async def upload_and_register_file(
         db: Session,
         game: Game,
         upload_file: UploadFile,
         file_type: Literal["isos", "images", "files"],
         label: str,
-        safe_filename: str,  # New parameter
+        safe_filename: str,
         **kwargs
 ) -> GameFile:
     if not label.strip():
@@ -61,11 +62,17 @@ def upload_and_register_file(
                 ("igdb" if game.igdb_id else "local") / \
                 game_ref / file_type / safe_filename
 
+    if dest_path.exists():
+        existing_file = db.query(GameFile).filter(GameFile.path == str(dest_path)).first()
+        if existing_file:
+            raise ValueError(f"File already exists at this path (ID: {existing_file.id})")
+
     try:
         dest_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with dest_path.open("wb") as buffer:
-            shutil.copyfileobj(upload_file.file, buffer)
+        async with aiofiles.open(dest_path, 'wb') as buffer:
+            while chunk := await upload_file.read(8192):
+                await buffer.write(chunk)
 
         file_record = GameFile(
             game=game_ref,
@@ -76,11 +83,44 @@ def upload_and_register_file(
         db.commit()
         return file_record
 
+    except sqlalchemy.exc.IntegrityError as e:
+        if "UNIQUE constraint failed: files.path" in str(e):
+            db.rollback()
+            existing = db.query(GameFile).filter(GameFile.path == str(dest_path)).first()
+            raise ValueError(f"File already registered (ID: {existing.id})") from e
+        raise
+
     except Exception:
         if dest_path.exists():
             dest_path.unlink(missing_ok=True)
         db.rollback()
         raise
+
+
+async def delete_game_file(
+        db: Session,
+        file_id: int,
+        game_ref: str
+) -> None:
+    file_record = db.get(GameFile, file_id)
+    if not file_record:
+        raise ValueError("File not found")
+
+    if file_record.game != game_ref:
+        raise ValueError("File does not belong to specified game")
+
+    file_path = Path(file_record.path)
+
+    try:
+        if file_path.exists():
+            file_path.unlink(missing_ok=True)
+
+        db.delete(file_record)
+        db.commit()
+
+    except Exception as e:
+        db.rollback()
+        raise RuntimeError(f"Deletion failed: {str(e)}") from e
 
 
 def sanitize_filename(filename: str) -> str:
@@ -97,3 +137,5 @@ def sanitize_filename(filename: str) -> str:
         clean_stem = '_'
 
     return f"{clean_stem}{suffix}"[:255]
+
+
