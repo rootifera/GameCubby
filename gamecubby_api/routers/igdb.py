@@ -8,7 +8,7 @@ import os
 import httpx
 from fastapi import APIRouter, HTTPException
 
-router = APIRouter()
+router = APIRouter(tags=["IGDB"])
 
 CLIENT_ID = os.getenv("CLIENT_ID")
 IGDB_URL = "https://api.igdb.com/v4/games"
