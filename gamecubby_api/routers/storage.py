@@ -6,9 +6,14 @@ from ..db import get_db
 from typing import List
 from ..models.storage import GameFile
 from ..schemas.storage import FileResponse
-from ..utils.storage import upload_and_register_file, sanitize_filename, delete_game_file
+from ..utils.storage import upload_and_register_file, sanitize_filename, delete_game_file, sync_game_files, \
+    sync_all_files
+from fastapi import BackgroundTasks
+import logging
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/games/{game_id}/files', tags=['Files'])
+system_files_router = APIRouter(prefix='/files', tags=['Scan All Files'])
 
 @router.get('/', response_model=List[FileResponse])
 def list_files(
@@ -98,3 +103,45 @@ async def delete_file(
         )
     except RuntimeError as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/sync-files", response_model=dict)
+def sync_files(
+    game_id: int,
+    db: Session = Depends(get_db)
+) -> dict:
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(404, "Game not found")
+
+    try:
+        added, skipped = sync_game_files(db, game)
+        return {
+            "status": "success",
+            "game_id": game_id,
+            "added_files": added,
+            "skipped_files": skipped
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, detail=f"Sync failed: {str(e)}")
+
+
+@system_files_router.post("/sync-all", response_model=dict)
+def full_system_sync(
+        background_tasks: BackgroundTasks,
+        db: Session = Depends(get_db)
+) -> dict:
+    def _run_sync():
+        try:
+            results = sync_all_files(db)
+            logger.info(f"Sync completed. Results: {results}")
+        except Exception as e:
+            logger.error(f"Sync failed: {str(e)}")
+
+    background_tasks.add_task(_run_sync)
+
+    return {
+        "status": "queued",
+        "message": "Full filesystem sync started in background"
+    }

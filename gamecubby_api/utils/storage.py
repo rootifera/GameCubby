@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-
+from typing import List, Tuple, Dict
 import sqlalchemy.exc
 from sqlalchemy.orm import Session
 from ..models.game import Game
@@ -138,4 +138,91 @@ def sanitize_filename(filename: str) -> str:
 
     return f"{clean_stem}{suffix}"[:255]
 
+def sync_game_files(
+    db: Session,
+    game: Game,
+    file_types: List[str] = ["isos", "images", "files"]
+) -> Tuple[int, int]:
 
+    game_ref = str(game.igdb_id) if game.igdb_id else \
+        "".join(c for c in game.name.lower() if c.isalnum())
+
+    base_path = Path("storage/uploads") / \
+               ("igdb" if game.igdb_id else "local") / \
+               game_ref
+
+    added = 0
+    skipped = 0
+
+    for file_type in file_types:
+        type_path = base_path / file_type
+        if not type_path.exists():
+            continue
+
+        for file_path in type_path.iterdir():
+            if file_path.is_file():
+                existing = db.query(GameFile).filter(
+                    GameFile.path == str(file_path)
+                ).first()
+
+                if not existing:
+                    db.add(GameFile(
+                        game=game_ref,
+                        path=str(file_path),
+                        label="File Found",
+                    ))
+                    added += 1
+                else:
+                    skipped += 1
+
+    db.commit()
+    return (added, skipped)
+
+
+def sync_all_files(db: Session) -> dict:
+
+    results = {
+        "total_added": 0,
+        "total_skipped": 0,
+        "game_results": {}
+    }
+
+    storage_root = Path("storage/uploads")
+
+    for platform in ["igdb", "local"]:
+        platform_path = storage_root / platform
+        if not platform_path.exists():
+            continue
+
+        for game_ref in platform_path.iterdir():
+            if game_ref.is_dir():
+                game_results = {"added": 0, "skipped": 0}
+
+                for file_type in ["isos", "images", "files"]:
+                    type_path = game_ref / file_type
+                    if not type_path.exists():
+                        continue
+
+                    for file_path in type_path.iterdir():
+                        if file_path.is_file():
+                            existing = db.query(GameFile).filter(
+                                GameFile.path == str(file_path)
+                            ).first()
+
+                            if not existing:
+                                db.add(GameFile(
+                                    game=game_ref.name,
+                                    path=str(file_path),
+                                    label="File Found"
+                                ))
+                                game_results["added"] += 1
+                            else:
+                                game_results["skipped"] += 1
+
+                # Update totals
+                results["total_added"] += game_results["added"]
+                results["total_skipped"] += game_results["skipped"]
+                results["game_results"][game_ref.name] = game_results
+
+    db.commit()
+    return results
