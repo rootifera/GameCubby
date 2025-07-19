@@ -1,12 +1,14 @@
 from dotenv import load_dotenv
 from ..utils.formatting import format_igdb_game
 from ..utils.external import get_igdb_token, fetch_igdb_game, fetch_igdb_collection
-
+from ..utils.platform import ensure_platforms_exist
+from sqlalchemy.orm import Session
+from ..db import get_db
 load_dotenv()
 
 import os
 import httpx
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
 router = APIRouter(tags=["IGDB"])
 
@@ -34,7 +36,10 @@ async def search_games(name: str):
     return [format_igdb_game(game) for game in results]
 
 @router.get("/game/{igdb_id}")
-async def get_igdb_game_by_id(igdb_id: int):
+async def get_igdb_game_by_id(
+    igdb_id: int,
+    db: Session = Depends(get_db)
+):
     raw = await fetch_igdb_game(igdb_id)
     if not raw:
         raise HTTPException(status_code=404, detail="Game not found on IGDB")
@@ -44,6 +49,11 @@ async def get_igdb_game_by_id(igdb_id: int):
         game["collection"] = collections[0]
     else:
         game["collection"] = None
+
+    platforms = game.get("platforms", [])
+    if platforms:
+        ensure_platforms_exist(db, platforms)
+
     return game
 
 

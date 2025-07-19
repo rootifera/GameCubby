@@ -71,7 +71,7 @@ async def fetch_igdb_collection(game_id: int):
     if not memberships:
         return []
     collection_ids = [m["collection"] for m in memberships if m.get("collection")]
-    # 2. Get names for each collection ID
+
     if not collection_ids:
         return []
     COLLECTION_URL = "https://api.igdb.com/v4/collections"
@@ -80,5 +80,5 @@ async def fetch_igdb_collection(game_id: int):
         resp = await client.post(COLLECTION_URL, data=query, headers=headers)
     resp.raise_for_status()
     collections = resp.json()
-    # Return as list of {id, name}
+
     return [{"id": c["id"], "name": c["name"]} for c in collections]
