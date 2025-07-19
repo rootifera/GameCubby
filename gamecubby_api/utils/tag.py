@@ -15,6 +15,7 @@ def upsert_tag(session: Session, tag_name: str):
         session.commit()
         session.refresh(tag)
     return tag
+
 def get_tag(session: Session, tag_id: int):
     """
     Retrieve a tag by ID.
