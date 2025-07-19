@@ -12,6 +12,7 @@ from .routers.games import router as games_router
 from .routers.collections import router as collections_router
 from .routers.storage import router as storage_router
 from .routers.storage import system_files_router as sync_storage_router
+from .routers.storage import downloads_router as downloads_router
 from .utils.storage import ensure_game_folders
 
 load_dotenv()
@@ -32,6 +33,8 @@ app.include_router(games_router)
 app.include_router(collections_router)
 app.include_router(storage_router)
 app.include_router(sync_storage_router)
+
+app.include_router(downloads_router)
 @app.get("/")
 def read_root():
     return {

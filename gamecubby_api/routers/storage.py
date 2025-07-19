@@ -7,13 +7,15 @@ from typing import List
 from ..models.storage import GameFile
 from ..schemas.storage import FileResponse
 from ..utils.storage import upload_and_register_file, sanitize_filename, delete_game_file, sync_game_files, \
-    sync_all_files
+    sync_all_files, get_downloadable_file
 from fastapi import BackgroundTasks
+
 import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix='/games/{game_id}/files', tags=['Files'])
 system_files_router = APIRouter(prefix='/files', tags=['Scan All Files'])
+downloads_router = APIRouter(prefix='/downloads', tags=['Downloads'])
 
 @router.get('/', response_model=List[FileResponse])
 def list_files(
@@ -145,3 +147,11 @@ def full_system_sync(
         "status": "queued",
         "message": "Full filesystem sync started in background"
     }
+
+
+@downloads_router.get("/{file_id}")
+async def download_file(
+    file_id: int,
+    db: Session = Depends(get_db)
+) -> FileResponse:
+    return get_downloadable_file(db, file_id)

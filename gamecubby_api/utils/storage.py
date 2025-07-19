@@ -1,15 +1,16 @@
 import re
 from pathlib import Path
-from typing import List, Tuple, Dict
+from typing import List, Tuple
 import sqlalchemy.exc
 from sqlalchemy.orm import Session
 from ..models.game import Game
 from ..db import get_db
 import logging
-from fastapi import UploadFile
+from fastapi import UploadFile, HTTPException
 import aiofiles
 from typing import Literal
 from ..models.storage import GameFile
+from fastapi.responses import FileResponse
 
 
 STORAGE_ROOT = Path("./storage")
@@ -219,10 +220,23 @@ def sync_all_files(db: Session) -> dict:
                             else:
                                 game_results["skipped"] += 1
 
-                # Update totals
                 results["total_added"] += game_results["added"]
                 results["total_skipped"] += game_results["skipped"]
                 results["game_results"][game_ref.name] = game_results
 
     db.commit()
     return results
+
+def get_downloadable_file(db: Session, file_id: int) -> FileResponse:
+    file_record = db.get(GameFile, file_id)
+    if not file_record:
+        raise HTTPException(404, "File record not found")
+
+    file_path = Path(file_record.path)
+    if not file_path.exists():
+        raise HTTPException(404, "File not found on disk")
+
+    return FileResponse(
+        path=file_path,
+        filename=file_path.name
+    )
