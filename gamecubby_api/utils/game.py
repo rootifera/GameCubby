@@ -26,7 +26,6 @@ def get_game(session: Session, game_id: int) -> Optional[Game]:
     )
 
     if game:
-        # Add location path data
         game.location_path = [
             {"id": str(loc["id"]), "name": loc["name"]}
             for loc in get_location_path(session, game.id)
@@ -92,7 +91,9 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
         return None
 
     if game.igdb_id != 0:
-        raise ValueError("Cannot update IGDB-sourced games")
+        allowed_fields = {"location_id", "order"}
+        if not all(k in allowed_fields for k in update_data.keys()):
+            raise ValueError("Cannot update IGDB-sourced games except location/order")
 
     update_data.pop('igdb_id', None)
 

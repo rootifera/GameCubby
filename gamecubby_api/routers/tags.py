@@ -19,7 +19,10 @@ def read_tags(db: Session = Depends(get_db)):
 def read_tag(tag_id: int, db: Session = Depends(get_db)):
     tag = get_tag(db, tag_id)
     if not tag:
-        raise HTTPException(status_code=404, detail="Tag not found")
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "not_found", "detail": "Tag not found"}
+        )
     return tag
 
 @router.delete("/{tag_id}", response_model=bool)

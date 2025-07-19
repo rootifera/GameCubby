@@ -33,7 +33,10 @@ def get_all_games(db: Session = Depends(get_db)):
 def get_game_by_id(game_id: int, db: Session = Depends(get_db)):
     game = get_game(db, game_id)
     if not game:
-        raise HTTPException(status_code=404, detail="Game not found")
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "not_found", "detail": "Game not found"}
+        )
     return game
 
 @router.put("/{game_id}", response_model=GameSchema)
@@ -45,7 +48,10 @@ def edit_game(
     try:
         updated = update_game(db, game_id, game.dict())
         if not updated:
-            raise HTTPException(status_code=404, detail="Game not found")
+            raise HTTPException(
+                status_code=404,
+                detail={"error": "not_found", "detail": "Game not found"}
+            )
         return updated
     except ValueError as e:
         raise HTTPException(status_code=403, detail=str(e))
@@ -55,7 +61,10 @@ def edit_game(
 def remove_game(game_id: int, db: Session = Depends(get_db)):
     deleted = delete_game(db, game_id)
     if not deleted:
-        raise HTTPException(status_code=404, detail="Game not found")
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "not_found", "detail": "Game not found"}
+        )
     return True
 
 
@@ -95,7 +104,10 @@ def get_platforms_for_game(game_id: int, db: Session = Depends(get_db)):
 def assign_location(game_id: int, req: AssignLocationRequest, db: Session = Depends(get_db)):
     updated = update_game(db, game_id, {"location_id": req.location_id, "order": req.order})
     if not updated:
-        raise HTTPException(status_code=404, detail="Game not found")
+        raise HTTPException(
+            status_code=404,
+            detail={"error": "not_found", "detail": "Game not found"}
+        )
     return updated
 
 
