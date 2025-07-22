@@ -40,8 +40,8 @@ async def search_games(name: str, db: Session = Depends(get_db)):
 
 @router.get("/game/{igdb_id}")
 async def get_igdb_game_by_id(
-        igdb_id: int,
-        db: Session = Depends(get_db)
+    igdb_id: int,
+    db: Session = Depends(get_db)
 ):
     raw = await fetch_igdb_game(igdb_id)
     print("RAW IGDB:", raw)
@@ -49,16 +49,14 @@ async def get_igdb_game_by_id(
         raise HTTPException(status_code=404, detail="Game not found on IGDB")
     game = format_igdb_game(raw, db)
     collections = await fetch_igdb_collection(igdb_id)
-    if collections:
-        game["collection"] = collections[0]
-    else:
-        game["collection"] = None
+    game["collection"] = collections[0] if collections else None
 
     platforms = game.get("platforms", [])
     if platforms:
         ensure_platforms_exist(db, platforms)
 
     return game
+
 
 
 @router.get("/collection_lookup/{game_id}")

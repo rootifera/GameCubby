@@ -11,11 +11,18 @@ def test_add_manual_game():
     assert platforms, "No platforms available for testing"
     platform_id = platforms[0]["id"]
 
+    resp_genres = client.get("/genres/")
+    assert resp_genres.status_code == 200
+    genres = resp_genres.json()
+    assert genres, "No genres available for testing"
+    genre_id = genres[0]["id"]
+
     resp = client.post("/games/", json={
         "name": "Test Manual Game",
         "summary": "This is a test manual game",
         "release_date": 2023,
         "platform_ids": [platform_id],
+        "genre_ids": [genre_id],
         "condition": 1,
         "location_id": None,
         "order": None,
@@ -28,15 +35,21 @@ def test_add_manual_game():
     assert game["name"] == "Test Manual Game"
     assert "id" in game
     assert any(p["id"] == platform_id for p in game["platforms"])
+    assert any(g["id"] == genre_id for g in game["genres"])
+
 
 
 
 def test_get_game_by_id():
+    resp_genres = client.get("/genres/")
+    genre_id = resp_genres.json()[0]["id"]
+
     resp_create = client.post("/games/", json={
         "name": "Test Get Game",
         "summary": "Game to retrieve",
         "release_date": 2023,
         "platform_ids": [],
+        "genre_ids": [genre_id],
         "condition": 1,
         "location_id": None,
         "order": None,
@@ -53,6 +66,8 @@ def test_get_game_by_id():
     retrieved = resp_get.json()
     assert retrieved["id"] == game_id
     assert retrieved["name"] == "Test Get Game"
+    assert any(g["id"] == genre_id for g in retrieved["genres"])
+
 
 
 def test_get_game_not_found():
@@ -64,19 +79,24 @@ def test_get_game_not_found():
 
 
 def test_update_game():
-    # Fetch a platform ID
     resp_platforms = client.get("/platforms/")
     assert resp_platforms.status_code == 200
     platforms = resp_platforms.json()
     assert platforms, "No platforms available for testing"
     platform_id = platforms[0]["id"]
 
-    # Create the game
+    resp_genres = client.get("/genres/")
+    assert resp_genres.status_code == 200
+    genres = resp_genres.json()
+    assert len(genres) >= 2
+    genre_ids = [genres[0]["id"], genres[1]["id"]]
+
     resp_create = client.post("/games/", json={
         "name": "Game To Update",
         "summary": "Original summary",
         "release_date": 2023,
         "platform_ids": [],
+        "genre_ids": [],
         "condition": 1,
         "location_id": None,
         "order": None,
@@ -97,7 +117,8 @@ def test_update_game():
         "order": 1,
         "collection_id": None,
         "cover_url": None,
-        "platform_ids": [platform_id]
+        "platform_ids": [platform_id],
+        "genre_ids": genre_ids
     }
     resp_update = client.put(f"/games/{game_id}", json=update_data)
     assert resp_update.status_code == 200
@@ -106,6 +127,8 @@ def test_update_game():
     assert updated["summary"] == "Updated summary"
     assert updated["release_date"] == 2024
     assert any(p["id"] == platform_id for p in updated["platforms"])
+    assert all(gid in [g["id"] for g in updated["genres"]] for gid in genre_ids)
+
 
 
 

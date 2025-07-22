@@ -15,6 +15,7 @@ from .routers.storage import router as storage_router
 from .routers.storage import system_files_router as sync_storage_router
 from .routers.storage import downloads_router as downloads_router
 from .routers.modes import router as modes_router
+from .routers.genres import router as genres_router
 
 load_dotenv()
 
@@ -23,6 +24,7 @@ load_dotenv()
 async def lifespan(app: FastAPI):
     ensure_game_folders(autocreate_all=True)
     yield
+
 
 app = FastAPI(lifespan=lifespan)
 
@@ -38,6 +40,9 @@ app.include_router(sync_storage_router)
 app.include_router(downloads_router)
 
 app.include_router(modes_router)
+app.include_router(genres_router)
+
+
 @app.get("/")
 def read_root():
     return {
