@@ -7,6 +7,7 @@ TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 _igdb_token = None
 _igdb_token_expiry = 0
 
+
 async def get_igdb_token():
     global _igdb_token, _igdb_token_expiry
 
@@ -42,9 +43,10 @@ async def fetch_igdb_game(igdb_id: int):
         "Authorization": f"Bearer {token}",
     }
     query = (
-        f"fields id, name, summary, cover.url, first_release_date, platforms.id, platforms.name, collection, collection.name;"
+        "fields id, name, summary, cover.url, first_release_date, platforms.id, platforms.name, collection, collection.name, game_modes;"
         f" where id = {igdb_id};"
     )
+
     async with httpx.AsyncClient() as client:
         resp = await client.post(IGDB_URL, data=query, headers=headers)
     resp.raise_for_status()
@@ -52,6 +54,7 @@ async def fetch_igdb_game(igdb_id: int):
     if not games:
         return None
     return games[0]
+
 
 async def fetch_igdb_collection(game_id: int):
     import os

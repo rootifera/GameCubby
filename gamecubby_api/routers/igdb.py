@@ -4,6 +4,7 @@ from ..utils.external import get_igdb_token, fetch_igdb_game, fetch_igdb_collect
 from ..utils.platform import ensure_platforms_exist
 from sqlalchemy.orm import Session
 from ..db import get_db
+
 load_dotenv()
 
 import os
@@ -16,8 +17,9 @@ CLIENT_ID = os.getenv("CLIENT_ID")
 IGDB_URL = "https://api.igdb.com/v4/games"
 QUERY_LIMIT = int(os.getenv("QUERY_LIMIT", "50"))
 
+
 @router.get("/search")
-async def search_games(name: str):
+async def search_games(name: str, db: Session = Depends(get_db)):
     token = await get_igdb_token()
     headers = {
         "Client-ID": CLIENT_ID,
@@ -25,7 +27,7 @@ async def search_games(name: str):
     }
     query = (
         f'search "{name}"; '
-        'fields id, name, cover.url, first_release_date, platforms.id, platforms.name, summary; '
+        'fields id, name, cover.url, first_release_date, platforms.id, platforms.name, summary, game_modes; '
         f'limit {QUERY_LIMIT};'
     )
     async with httpx.AsyncClient() as client:
@@ -33,17 +35,19 @@ async def search_games(name: str):
     if resp.status_code != 200:
         raise HTTPException(status_code=resp.status_code, detail=resp.text)
     results = resp.json()
-    return [format_igdb_game(game) for game in results]
+    return [format_igdb_game(game, db) for game in results]
+
 
 @router.get("/game/{igdb_id}")
 async def get_igdb_game_by_id(
-    igdb_id: int,
-    db: Session = Depends(get_db)
+        igdb_id: int,
+        db: Session = Depends(get_db)
 ):
     raw = await fetch_igdb_game(igdb_id)
+    print("RAW IGDB:", raw)
     if not raw:
         raise HTTPException(status_code=404, detail="Game not found on IGDB")
-    game = format_igdb_game(raw)
+    game = format_igdb_game(raw, db)
     collections = await fetch_igdb_collection(igdb_id)
     if collections:
         game["collection"] = collections[0]
@@ -55,7 +59,6 @@ async def get_igdb_game_by_id(
         ensure_platforms_exist(db, platforms)
 
     return game
-
 
 
 @router.get("/collection_lookup/{game_id}")

@@ -3,10 +3,13 @@ from typing import Optional, List, Dict
 from .platform import Platform
 from .tag import Tag
 from .collection import Collection
+from .mode import Mode
+
 
 class AssignLocationRequest(BaseModel):
     location_id: int
     order: int | None = None
+
 
 class Game(BaseModel):
     id: int
@@ -21,29 +24,37 @@ class Game(BaseModel):
     platforms: List[Platform] = []
     tags: List[Tag] = []
     collection: Optional[Collection] = None
+    modes: list[Mode] = []
 
     class Config:
         from_attributes = True
 
 
 class GameCreate(BaseModel):
-    igdb_id: int | None = None
+    igdb_id: Optional[int] = None
     name: str
-    summary: str | None = None
-    release_date: int | None = None
-    cover_url: str | None = None
-    condition: int | None = None
-    location_id: int | None = None
-    order: int | None = None
+    summary: Optional[str] = None
+    release_date: Optional[int] = None
+    cover_url: Optional[str] = None
+    condition: Optional[int] = None
+    location_id: Optional[int] = None
+    order: Optional[int] = None
+    mode_ids: Optional[List[int]] = []
+
+    class Config:
+        from_attributes = True
+
 
 class GameUpdate(BaseModel):
-    name: str | None = None
-    summary: str | None = None
-    release_date: int | None = None
-    cover_url: str | None = None
-    condition: int | None = None
-    location_id: int | None = None
-    order: int | None = None
+    name: Optional[str] = None
+    summary: Optional[str] = None
+    release_date: Optional[int] = None
+    cover_url: Optional[str] = None
+    condition: Optional[int] = None
+    location_id: Optional[int] = None
+    order: Optional[int] = None
+    mode_ids: Optional[List[int]] = None
+
 
 class AddGameFromIGDBRequest(BaseModel):
     igdb_id: int

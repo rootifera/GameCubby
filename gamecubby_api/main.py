@@ -4,6 +4,7 @@ from typing import AsyncIterator
 
 from fastapi import FastAPI
 from dotenv import load_dotenv
+from .utils.storage import ensure_game_folders
 from .routers import igdb
 from .routers.tags import router as tags_router
 from .routers.locations import router as locations_router
@@ -13,7 +14,7 @@ from .routers.collections import router as collections_router
 from .routers.storage import router as storage_router
 from .routers.storage import system_files_router as sync_storage_router
 from .routers.storage import downloads_router as downloads_router
-from .utils.storage import ensure_game_folders
+from .routers.modes import router as modes_router
 
 load_dotenv()
 
@@ -35,6 +36,8 @@ app.include_router(storage_router)
 app.include_router(sync_storage_router)
 
 app.include_router(downloads_router)
+
+app.include_router(modes_router)
 @app.get("/")
 def read_root():
     return {
