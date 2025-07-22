@@ -22,6 +22,8 @@ class Game(BaseModel):
     condition: Optional[int]
     location_path: List[Dict[str, str]] = Field(default=[])
     order: Optional[int]
+    rating: Optional[int] = None
+    updated_at: Optional[int] = None
     platforms: List[Platform] = []
     tags: List[Tag] = []
     collection: Optional[Collection] = None
@@ -44,6 +46,8 @@ class GameCreate(BaseModel):
     mode_ids: Optional[List[int]] = []
     platform_ids: Optional[List[int]] = []
     genre_ids: Optional[List[int]] = []
+    rating: Optional[int] = None
+    updated_at: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -60,6 +64,8 @@ class GameUpdate(BaseModel):
     mode_ids: Optional[List[int]] = None
     platform_ids: Optional[List[int]] = None
     genre_ids: Optional[List[int]] = None
+    rating: Optional[int] = None
+    updated_at: Optional[int] = None
 
 
 class AddGameFromIGDBRequest(BaseModel):

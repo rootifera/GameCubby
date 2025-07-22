@@ -1,4 +1,6 @@
 from sqlalchemy.orm import Session
+
+from .formatting import format_igdb_game
 from .location import get_location_path
 from ..models.location import Location
 from ..utils.external import fetch_igdb_game, fetch_igdb_collection
@@ -12,6 +14,7 @@ from ..models.platform import Platform
 from ..models.genre import Genre
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
+import asyncio
 
 
 def get_game(session: Session, game_id: int) -> Optional[Game]:
@@ -208,13 +211,13 @@ def upsert_collection(session, collection_obj):
 
 
 async def add_game_from_igdb(
-    session,
-    igdb_id: int,
-    platform_ids: list[int],
-    location_id: int | None = None,
-    tag_ids: list[int] = [],
-    condition: int | None = None,
-    order: int | None = None
+        session,
+        igdb_id: int,
+        platform_ids: list[int],
+        location_id: int | None = None,
+        tag_ids: list[int] = [],
+        condition: int | None = None,
+        order: int | None = None
 ):
     from ..utils.formatting import format_igdb_game
     from ..models.mode import Mode
@@ -234,6 +237,13 @@ async def add_game_from_igdb(
     summary = game_data["summary"]
     release_date = game_data["release_date"]
     cover_url = game_data["cover_url"]
+    rating = None
+    if "rating" in raw and raw["rating"] is not None:
+        try:
+            rating = int(raw["rating"])
+        except Exception:
+            rating = None
+    updated_at = raw.get("updated_at")
 
     collection_list = await fetch_igdb_collection(igdb_id)
     collection_id = None
@@ -257,6 +267,8 @@ async def add_game_from_igdb(
         condition=condition,
         order=order,
         collection_id=collection_id,
+        rating=rating,
+        updated_at=updated_at,
     )
     session.add(game)
 
@@ -295,3 +307,91 @@ async def add_game_from_igdb(
     session.commit()
     session.refresh(game)
     return game
+
+
+async def refresh_game_metadata(session: Session, game_id: int) -> (Game, bool, str):
+    """
+    Refresh a game's metadata from IGDB if IGDB's updated_at is newer.
+    Returns: (game, was_updated (bool), message)
+    """
+    game = session.query(Game).filter_by(id=game_id).first()
+    if not game:
+        return None, False, "Game not found."
+
+    if not game.igdb_id or game.igdb_id == 0:
+        return game, False, "Game has no IGDB ID (not an IGDB-backed game)."
+
+    raw = await fetch_igdb_game(game.igdb_id)
+    if not raw:
+        return game, False, "Could not fetch IGDB game."
+
+    igdb_updated_at = raw.get("updated_at")
+    if igdb_updated_at is None:
+        return game, False, "IGDB game missing updated_at."
+
+    print(f"Local updated_at: {game.updated_at}, IGDB updated_at: {igdb_updated_at}")
+    if game.updated_at == igdb_updated_at:
+        return game, False, "Already up to date."
+
+    game_data = format_igdb_game(raw, session)
+    game.name = game_data["name"]
+    game.summary = game_data["summary"]
+    game.release_date = game_data["release_date"]
+    game.cover_url = game_data["cover_url"]
+    game.rating = int(raw["rating"]) if "rating" in raw and raw["rating"] is not None else None
+    game.updated_at = igdb_updated_at
+
+    genre_ids = [g["id"] for g in game_data.get("genres", [])]
+    if genre_ids:
+        from ..models.genre import Genre
+        game.genres = session.query(Genre).filter(Genre.id.in_(genre_ids)).all()
+    mode_ids = [m["id"] for m in game_data.get("game_modes", [])]
+    if mode_ids:
+        from ..models.mode import Mode
+        game.modes = session.query(Mode).filter(Mode.id.in_(mode_ids)).all()
+    platform_ids = [p["id"] for p in game_data.get("platforms", [])]
+    if platform_ids:
+        from ..models.platform import Platform
+        game.platforms = session.query(Platform).filter(Platform.id.in_(platform_ids)).all()
+
+    session.commit()
+    session.refresh(game)
+    return game, True, "Game metadata updated from IGDB."
+
+
+def refresh_all_games_metadata(session: Session):
+    """
+    Refresh metadata for all IGDB-backed games.
+    Returns summary: {updated: int, skipped: int, errors: int}
+    """
+
+    updated, skipped, errors = 0, 0, 0
+    games = session.query(Game).filter(Game.igdb_id.isnot(None), Game.igdb_id > 0).all()
+    for game in games:
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            refreshed, did_update, msg = loop.run_until_complete(refresh_game_metadata(session, game.id))
+            loop.close()
+            if did_update:
+                updated += 1
+            elif "up to date" in msg:
+                skipped += 1
+            else:
+                errors += 1
+        except Exception as e:
+            print(f"Error refreshing game {game.id}: {e}")
+            errors += 1
+    print(f"Batch refresh: updated={updated}, skipped={skipped}, errors={errors}")
+    return {"updated": updated, "skipped": skipped, "errors": errors}
+
+
+def force_refresh_metadata(session: Session):
+    """
+    Sets updated_at = 0 for all IGDB games, then calls batch refresh.
+    """
+    from ..models.game import Game
+    session.query(Game).filter(Game.igdb_id.isnot(None), Game.igdb_id > 0).update({Game.updated_at: 0})
+    session.commit()
+    print("Force refresh: all updated_at set to 0.")
+    return refresh_all_games_metadata(session)
