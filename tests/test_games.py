@@ -424,10 +424,34 @@ def test_get_game_location_path():
     game = resp_game.json()
     game_id = game["id"]
 
-    resp_path = client.get(f"/games/game/{game_id}/location_path")
+    resp_path = client.get(f"/games/{game_id}/location_path")
     assert resp_path.status_code == 200
     path = resp_path.json().get("location_path", [])
     assert isinstance(path, list)
     assert len(path) >= 1
     assert any(loc["id"] == location_id for loc in path)
     assert any(loc["id"] == child_location_id for loc in path)
+
+def test_rating_and_updated_at_on_igdb_import():
+    igdb_id = 126
+    resp_igdb = client.get(f"/igdb/game/{igdb_id}")
+    assert resp_igdb.status_code == 200
+    igdb_game = resp_igdb.json()
+    platform_ids = [p["id"] for p in igdb_game.get("platforms", [])]
+
+    data = {
+        "igdb_id": igdb_id,
+        "platform_ids": platform_ids,
+        "location_id": None,
+        "tag_ids": [],
+        "condition": 1,
+        "order": 0
+    }
+    resp = client.post("/games/from_igdb", json=data)
+    assert resp.status_code == 200
+    game = resp.json()
+
+    assert "rating" in game
+    assert "updated_at" in game
+    assert isinstance(game["rating"], int) or game["rating"] is None
+    assert isinstance(game["updated_at"], int) or game["updated_at"] is None
