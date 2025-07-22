@@ -21,6 +21,8 @@ class Game(Base):
     condition = Column(Integer, nullable=True)
     location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
     order = Column(Integer, nullable=True)
+    rating = Column(Integer, nullable=True)
+    updated_at = Column(Integer, nullable=True)
 
     location = relationship("Location")
 

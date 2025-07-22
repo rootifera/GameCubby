@@ -41,4 +41,6 @@ def format_igdb_game(game, db: Session):
         "summary": game.get("summary"),
         "game_modes": game_modes,
         "genres": game_genres,
+        "rating": int(game["rating"]) if game.get("rating") is not None else None,
+        "updated_at": game.get("updated_at"),
     }
