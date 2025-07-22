@@ -40,6 +40,7 @@ class GameCreate(BaseModel):
     location_id: Optional[int] = None
     order: Optional[int] = None
     mode_ids: Optional[List[int]] = []
+    platform_ids: Optional[List[int]] = []
 
     class Config:
         from_attributes = True
@@ -54,6 +55,7 @@ class GameUpdate(BaseModel):
     location_id: Optional[int] = None
     order: Optional[int] = None
     mode_ids: Optional[List[int]] = None
+    platform_ids: Optional[List[int]] = None
 
 
 class AddGameFromIGDBRequest(BaseModel):

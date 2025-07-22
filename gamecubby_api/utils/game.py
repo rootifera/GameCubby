@@ -79,8 +79,11 @@ def list_games(session: Session) -> List[Game]:
 
 
 def create_game(session: Session, game_data: dict):
+    from ..models.mode import Mode
+    from ..models.platform import Platform
 
     mode_ids = game_data.pop("mode_ids", [])
+    platform_ids = game_data.pop("platform_ids", [])
     game_data['igdb_id'] = 0
     game = Game(**game_data)
     session.add(game)
@@ -91,13 +94,21 @@ def create_game(session: Session, game_data: dict):
             if mode not in game.modes:
                 game.modes.append(mode)
 
+    if platform_ids:
+        platforms = session.query(Platform).filter(Platform.id.in_(platform_ids)).all()
+        for platform in platforms:
+            if platform not in game.platforms:
+                game.platforms.append(platform)
+
     session.commit()
     session.refresh(game)
     return game
 
 
+
 def update_game(session: Session, game_id: int, update_data: dict) -> Optional[Game]:
     from ..models.mode import Mode
+    from ..models.platform import Platform
 
     game = session.query(Game).filter_by(id=game_id).first()
     if not game:
@@ -117,12 +128,20 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
         for mode in modes:
             game.modes.append(mode)
 
+    platform_ids = update_data.pop("platform_ids", None)
+    if platform_ids is not None:
+        game.platforms = []
+        platforms = session.query(Platform).filter(Platform.id.in_(platform_ids)).all()
+        for platform in platforms:
+            game.platforms.append(platform)
+
     for key, value in update_data.items():
         if value is not None:
             setattr(game, key, value)
 
     session.commit()
     return game
+
 
 
 def delete_game(session: Session, game_id: int):
