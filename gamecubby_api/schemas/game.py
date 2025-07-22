@@ -3,6 +3,7 @@ from typing import Optional, List, Dict
 from .platform import Platform
 from .tag import Tag
 from .collection import Collection
+from .genre import Genre
 from .mode import Mode
 
 
@@ -25,13 +26,14 @@ class Game(BaseModel):
     tags: List[Tag] = []
     collection: Optional[Collection] = None
     modes: list[Mode] = []
+    genres: list[Genre] = []
 
     class Config:
         from_attributes = True
 
 
 class GameCreate(BaseModel):
-    igdb_id: Optional[int] = None
+    #igdb_id: Optional[int] = None
     name: str
     summary: Optional[str] = None
     release_date: Optional[int] = None
@@ -41,6 +43,7 @@ class GameCreate(BaseModel):
     order: Optional[int] = None
     mode_ids: Optional[List[int]] = []
     platform_ids: Optional[List[int]] = []
+    genre_ids: Optional[List[int]] = []
 
     class Config:
         from_attributes = True
@@ -56,6 +59,7 @@ class GameUpdate(BaseModel):
     order: Optional[int] = None
     mode_ids: Optional[List[int]] = None
     platform_ids: Optional[List[int]] = None
+    genre_ids: Optional[List[int]] = None
 
 
 class AddGameFromIGDBRequest(BaseModel):

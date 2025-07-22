@@ -1,15 +1,15 @@
 from sqlalchemy.orm import Session
-
 from .location import get_location_path
 from ..models.location import Location
 from ..utils.external import fetch_igdb_game, fetch_igdb_collection
 from ..utils.platform import upsert_platform
 from ..utils.collection import create_collection
 from ..models.game import Game
-from ..models.platform import Platform
 from ..models.tag import Tag
 from ..models.collection import Collection
 from ..models.mode import Mode
+from ..models.platform import Platform
+from ..models.genre import Genre
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 
@@ -81,9 +81,11 @@ def list_games(session: Session) -> List[Game]:
 def create_game(session: Session, game_data: dict):
     from ..models.mode import Mode
     from ..models.platform import Platform
+    from ..models.genre import Genre
 
     mode_ids = game_data.pop("mode_ids", [])
     platform_ids = game_data.pop("platform_ids", [])
+    genre_ids = game_data.pop("genre_ids", [])
     game_data['igdb_id'] = 0
     game = Game(**game_data)
     session.add(game)
@@ -100,16 +102,18 @@ def create_game(session: Session, game_data: dict):
             if platform not in game.platforms:
                 game.platforms.append(platform)
 
+    if genre_ids:
+        genres = session.query(Genre).filter(Genre.id.in_(genre_ids)).all()
+        for genre in genres:
+            if genre not in game.genres:
+                game.genres.append(genre)
+
     session.commit()
     session.refresh(game)
     return game
 
 
-
 def update_game(session: Session, game_id: int, update_data: dict) -> Optional[Game]:
-    from ..models.mode import Mode
-    from ..models.platform import Platform
-
     game = session.query(Game).filter_by(id=game_id).first()
     if not game:
         return None
@@ -135,13 +139,19 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
         for platform in platforms:
             game.platforms.append(platform)
 
+    genre_ids = update_data.pop("genre_ids", None)
+    if genre_ids is not None:
+        game.genres = []
+        genres = session.query(Genre).filter(Genre.id.in_(genre_ids)).all()
+        for genre in genres:
+            game.genres.append(genre)
+
     for key, value in update_data.items():
         if value is not None:
             setattr(game, key, value)
 
     session.commit()
     return game
-
 
 
 def delete_game(session: Session, game_id: int):
@@ -198,17 +208,22 @@ def upsert_collection(session, collection_obj):
 
 
 async def add_game_from_igdb(
-        session,
-        igdb_id: int,
-        platform_ids: list[int],
-        location_id: int | None = None,
-        tag_ids: list[int] = [],
-        condition: int | None = None,
-        order: int | None = None
+    session,
+    igdb_id: int,
+    platform_ids: list[int],
+    location_id: int | None = None,
+    tag_ids: list[int] = [],
+    condition: int | None = None,
+    order: int | None = None
 ):
     from ..utils.formatting import format_igdb_game
     from ..models.mode import Mode
     from ..utils.mode import upsert_mode
+    from ..models.genre import Genre
+    from ..models.platform import Platform
+    from ..utils.platform import upsert_platform
+    from ..models.tag import Tag
+    from ..models.collection import Collection
 
     raw = await fetch_igdb_game(igdb_id)
     if not raw:
@@ -222,11 +237,14 @@ async def add_game_from_igdb(
 
     collection_list = await fetch_igdb_collection(igdb_id)
     collection_id = None
-    collection = None
-    first_collection = collection_list[0] if collection_list else None
-
-    if first_collection:
-        collection = upsert_collection(session, first_collection)
+    if collection_list:
+        collection_data = collection_list[0]
+        collection = session.query(Collection).filter_by(igdb_id=collection_data["id"]).first()
+        if not collection:
+            collection = Collection(igdb_id=collection_data["id"], name=collection_data["name"])
+            session.add(collection)
+            session.commit()
+            session.refresh(collection)
         collection_id = collection.id
 
     game = Game(
@@ -242,20 +260,24 @@ async def add_game_from_igdb(
     )
     session.add(game)
 
-    mode_ids = game_data.get("game_modes", [])
-    if mode_ids:
-        for mode_item in mode_ids:
-            if isinstance(mode_item, dict):
-                real_id = mode_item["id"]
-                mode_name = mode_item.get("name", "")
-            else:
-                real_id = mode_item
-                mode_name = ""
-            mode = session.query(Mode).filter_by(id=real_id).first()
+    mode_items = game_data.get("game_modes", [])
+    if mode_items:
+        for mode_item in mode_items:
+            mode_id = mode_item["id"] if isinstance(mode_item, dict) else mode_item
+            mode_name = mode_item.get("name") if isinstance(mode_item, dict) else ""
+            mode = session.query(Mode).filter_by(id=mode_id).first()
             if not mode:
-                mode = upsert_mode(session, real_id, mode_name)
+                mode = upsert_mode(session, mode_id, mode_name or "")
             if mode and mode not in game.modes:
                 game.modes.append(mode)
+
+    genre_items = game_data.get("genres", [])
+    if genre_items:
+        for genre_item in genre_items:
+            genre_id = genre_item["id"] if isinstance(genre_item, dict) else genre_item
+            genre = session.query(Genre).filter_by(id=genre_id).first()
+            if genre and genre not in game.genres:
+                game.genres.append(genre)
 
     igdb_platforms = {p["id"]: p for p in game_data.get("platforms", [])}
     for platform_id in platform_ids:
