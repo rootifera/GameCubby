@@ -43,7 +43,8 @@ async def fetch_igdb_game(igdb_id: int):
         "Authorization": f"Bearer {token}",
     }
     query = (
-        "fields id, name, summary, cover.url, first_release_date, platforms.id, platforms.name, collection, collection.name, game_modes, genres, rating, updated_at;"
+        "fields id, name, summary, cover.url, first_release_date, platforms.id, platforms.name, "
+        "collection, collection.name, game_modes, genres, rating, updated_at, player_perspectives;"
         f" where id = {igdb_id};"
     )
 
