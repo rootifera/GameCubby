@@ -85,11 +85,14 @@ def create_game(session: Session, game_data: dict):
     from ..models.mode import Mode
     from ..models.platform import Platform
     from ..models.genre import Genre
+    from ..models.playerperspective import PlayerPerspective
 
     mode_ids = game_data.pop("mode_ids", [])
     platform_ids = game_data.pop("platform_ids", [])
     genre_ids = game_data.pop("genre_ids", [])
+    perspective_ids = game_data.pop("player_perspective_ids", [])
     game_data['igdb_id'] = 0
+
     game = Game(**game_data)
     session.add(game)
 
@@ -111,12 +114,23 @@ def create_game(session: Session, game_data: dict):
             if genre not in game.genres:
                 game.genres.append(genre)
 
+    if perspective_ids:
+        perspectives = session.query(PlayerPerspective).filter(PlayerPerspective.id.in_(perspective_ids)).all()
+        for p in perspectives:
+            if p not in game.playerperspectives:
+                game.playerperspectives.append(p)
+
     session.commit()
     session.refresh(game)
     return game
 
 
 def update_game(session: Session, game_id: int, update_data: dict) -> Optional[Game]:
+    from ..models.mode import Mode
+    from ..models.platform import Platform
+    from ..models.genre import Genre
+    from ..models.playerperspective import PlayerPerspective
+
     game = session.query(Game).filter_by(id=game_id).first()
     if not game:
         return None
@@ -148,6 +162,13 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
         genres = session.query(Genre).filter(Genre.id.in_(genre_ids)).all()
         for genre in genres:
             game.genres.append(genre)
+
+    perspective_ids = update_data.pop("player_perspective_ids", None)
+    if perspective_ids is not None:
+        game.playerperspectives = []
+        perspectives = session.query(PlayerPerspective).filter(PlayerPerspective.id.in_(perspective_ids)).all()
+        for p in perspectives:
+            game.playerperspectives.append(p)
 
     for key, value in update_data.items():
         if value is not None:
@@ -227,6 +248,7 @@ async def add_game_from_igdb(
     from ..utils.platform import upsert_platform
     from ..models.tag import Tag
     from ..models.collection import Collection
+    from ..models.playerperspective import PlayerPerspective
 
     raw = await fetch_igdb_game(igdb_id)
     if not raw:
@@ -304,9 +326,17 @@ async def add_game_from_igdb(
         if tag and tag not in game.tags:
             game.tags.append(tag)
 
+    perspective_ids = raw.get("player_perspectives", [])
+    if perspective_ids:
+        perspectives = session.query(PlayerPerspective).filter(PlayerPerspective.id.in_(perspective_ids)).all()
+        for p in perspectives:
+            if p not in game.playerperspectives:
+                game.playerperspectives.append(p)
+
     session.commit()
     session.refresh(game)
     return game
+
 
 
 async def refresh_game_metadata(session: Session, game_id: int) -> (Game, bool, str):

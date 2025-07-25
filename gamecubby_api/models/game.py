@@ -7,6 +7,8 @@ from ..models.game_mode import game_modes
 from ..models.game_genre import game_genres
 from ..models.genre import Genre
 from ..models.mode import Mode
+from ..models.playerperspective import PlayerPerspective
+from ..models.game_playerperspective import game_playerperspectives
 from ..models import Base
 
 class Game(Base):
@@ -33,6 +35,12 @@ class Game(Base):
     tags = relationship("Tag", secondary=game_tags, back_populates="games")
     modes = relationship("Mode", secondary=game_modes, backref="games")
     genres = relationship("Genre", secondary=game_genres, backref="games")
+
+    playerperspectives = relationship(
+        "PlayerPerspective",
+        secondary=game_playerperspectives,
+        backref="games"
+    )
 
     def __repr__(self):
         return f"<Game(id={self.id}, name={self.name}, igdb_id={self.igdb_id})>"

@@ -16,6 +16,12 @@ from .routers.storage import system_files_router as sync_storage_router
 from .routers.storage import downloads_router as downloads_router
 from .routers.modes import router as modes_router
 from .routers.genres import router as genres_router
+from .routers.playerperspectives import router as perspectives_router
+
+from .utils.playerperspective import sync_player_perspectives
+from .utils.mode import sync_modes_from_igdb
+from .utils.genre import sync_genres
+from .db import get_db
 
 load_dotenv()
 
@@ -23,6 +29,15 @@ load_dotenv()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ensure_game_folders(autocreate_all=True)
+
+    db = next(get_db())
+    try:
+        await sync_player_perspectives(db)
+        await sync_modes_from_igdb(db)
+        await sync_genres(db)
+    except Exception as e:
+        print(f"[Startup Sync Warning] Failed to sync some IGDB data: {e}")
+
     yield
 
 
@@ -41,6 +56,7 @@ app.include_router(downloads_router)
 
 app.include_router(modes_router)
 app.include_router(genres_router)
+app.include_router(perspectives_router)
 
 
 @app.get("/")

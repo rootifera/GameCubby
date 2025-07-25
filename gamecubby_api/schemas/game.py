@@ -5,6 +5,7 @@ from .tag import Tag
 from .collection import Collection
 from .genre import Genre
 from .mode import Mode
+from .playerperspective import PlayerPerspective
 
 
 class AssignLocationRequest(BaseModel):
@@ -29,13 +30,13 @@ class Game(BaseModel):
     collection: Optional[Collection] = None
     modes: list[Mode] = []
     genres: list[Genre] = []
+    playerperspectives: list[PlayerPerspective] = []
 
     class Config:
         from_attributes = True
 
 
 class GameCreate(BaseModel):
-    #igdb_id: Optional[int] = None
     name: str
     summary: Optional[str] = None
     release_date: Optional[int] = None
@@ -46,8 +47,8 @@ class GameCreate(BaseModel):
     mode_ids: Optional[List[int]] = []
     platform_ids: Optional[List[int]] = []
     genre_ids: Optional[List[int]] = []
+    player_perspective_ids: Optional[List[int]] = []
     rating: Optional[int] = None
-    updated_at: Optional[int] = None
 
     class Config:
         from_attributes = True
@@ -64,8 +65,8 @@ class GameUpdate(BaseModel):
     mode_ids: Optional[List[int]] = None
     platform_ids: Optional[List[int]] = None
     genre_ids: Optional[List[int]] = None
+    player_perspective_ids: Optional[List[int]] = None
     rating: Optional[int] = None
-    updated_at: Optional[int] = None
 
 
 class AddGameFromIGDBRequest(BaseModel):
