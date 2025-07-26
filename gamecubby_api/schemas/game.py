@@ -6,12 +6,24 @@ from .collection import Collection
 from .genre import Genre
 from .mode import Mode
 from .playerperspective import PlayerPerspective
+from .company import Company as CompanySchema
 from .igdb_tag import IGDBTag as IGDBTagSchema
 
 
 class AssignLocationRequest(BaseModel):
     location_id: int
     order: int | None = None
+
+
+class GameCompany(BaseModel):
+    company: CompanySchema
+    developer: bool
+    publisher: bool
+    porting: bool
+    supporting: bool
+
+    class Config:
+        from_attributes = True
 
 
 class Game(BaseModel):
@@ -33,6 +45,7 @@ class Game(BaseModel):
     genres: list[Genre] = []
     playerperspectives: list[PlayerPerspective] = []
     igdb_tags: list[IGDBTagSchema] = []
+    companies: list[GameCompany] = []
 
     class Config:
         from_attributes = True
