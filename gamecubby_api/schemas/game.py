@@ -6,6 +6,7 @@ from .collection import Collection
 from .genre import Genre
 from .mode import Mode
 from .playerperspective import PlayerPerspective
+from .igdb_tag import IGDBTag as IGDBTagSchema
 
 
 class AssignLocationRequest(BaseModel):
@@ -31,6 +32,7 @@ class Game(BaseModel):
     modes: list[Mode] = []
     genres: list[Genre] = []
     playerperspectives: list[PlayerPerspective] = []
+    igdb_tags: list[IGDBTagSchema] = []
 
     class Config:
         from_attributes = True

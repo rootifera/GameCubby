@@ -9,7 +9,9 @@ from ..models.genre import Genre
 from ..models.mode import Mode
 from ..models.playerperspective import PlayerPerspective
 from ..models.game_playerperspective import game_playerperspectives
+from ..models.igdb_tag import IGDBTag, game_igdb_tags
 from ..models import Base
+
 
 class Game(Base):
     __tablename__ = "games"
@@ -35,6 +37,11 @@ class Game(Base):
     tags = relationship("Tag", secondary=game_tags, back_populates="games")
     modes = relationship("Mode", secondary=game_modes, backref="games")
     genres = relationship("Genre", secondary=game_genres, backref="games")
+    igdb_tags = relationship(
+        "IGDBTag",
+        secondary="game_igdb_tags",
+        backref="games"
+    )
 
     playerperspectives = relationship(
         "PlayerPerspective",

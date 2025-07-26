@@ -44,7 +44,7 @@ async def fetch_igdb_game(igdb_id: int):
     }
     query = (
         "fields id, name, summary, cover.url, first_release_date, platforms.id, platforms.name, "
-        "collection, collection.name, game_modes, genres, rating, updated_at, player_perspectives;"
+        "collection, collection.name, game_modes, genres, rating, updated_at, player_perspectives, tags;"
         f" where id = {igdb_id};"
     )
 
