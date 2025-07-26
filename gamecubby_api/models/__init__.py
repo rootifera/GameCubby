@@ -10,3 +10,6 @@ from .location import Location
 from .platform import Platform
 from .storage import GameFile
 from .tag import Tag
+from .company import Company
+from .game_company import GameCompany
+

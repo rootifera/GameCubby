@@ -1,8 +1,8 @@
-"""add igdb tags
+"""initial fresh schema with involved companies
 
-Revision ID: 18533de03618
+Revision ID: 7b248d61b238
 Revises: 
-Create Date: 2025-07-26 14:50:00.861272
+Create Date: 2025-07-26 16:36:49.253878
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '18533de03618'
+revision: str = '7b248d61b238'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -28,6 +28,11 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('igdb_id'),
     sa.UniqueConstraint('name')
+    )
+    op.create_table('companies',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('name', sa.String(), nullable=False),
+    sa.PrimaryKeyConstraint('id')
     )
     op.create_table('files',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -100,6 +105,17 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_games_igdb_id'), 'games', ['igdb_id'], unique=False)
+    op.create_table('game_companies',
+    sa.Column('game_id', sa.Integer(), nullable=False),
+    sa.Column('company_id', sa.Integer(), nullable=False),
+    sa.Column('developer', sa.Boolean(), nullable=True),
+    sa.Column('publisher', sa.Boolean(), nullable=True),
+    sa.Column('porting', sa.Boolean(), nullable=True),
+    sa.Column('supporting', sa.Boolean(), nullable=True),
+    sa.ForeignKeyConstraint(['company_id'], ['companies.id'], ),
+    sa.ForeignKeyConstraint(['game_id'], ['games.id'], ),
+    sa.PrimaryKeyConstraint('game_id', 'company_id')
+    )
     op.create_table('game_genres',
     sa.Column('game_id', sa.Integer(), nullable=False),
     sa.Column('genre_id', sa.Integer(), nullable=False),
@@ -154,6 +170,7 @@ def downgrade() -> None:
     op.drop_table('game_modes')
     op.drop_table('game_igdb_tags')
     op.drop_table('game_genres')
+    op.drop_table('game_companies')
     op.drop_index(op.f('ix_games_igdb_id'), table_name='games')
     op.drop_table('games')
     op.drop_index(op.f('ix_tags_id'), table_name='tags')
@@ -166,5 +183,6 @@ def downgrade() -> None:
     op.drop_table('igdb_tags')
     op.drop_table('genres')
     op.drop_table('files')
+    op.drop_table('companies')
     op.drop_table('collections')
     # ### end Alembic commands ###

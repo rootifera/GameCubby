@@ -1,6 +1,6 @@
 from dotenv import load_dotenv
 from ..utils.formatting import format_igdb_game
-from ..utils.external import get_igdb_token, fetch_igdb_game, fetch_igdb_collection
+from ..utils.external import get_igdb_token, fetch_igdb_game, fetch_igdb_collection, fetch_igdb_involved_companies
 from ..utils.platform import ensure_platforms_exist
 from sqlalchemy.orm import Session
 from ..utils.igdb_tag import upsert_igdb_tags
@@ -64,6 +64,16 @@ async def get_igdb_game_by_id(
         game["igdb_tags"] = [{"id": t.id, "name": t.name} for t in tags]
     else:
         game["igdb_tags"] = []
+
+    if "involved_companies" in raw and raw["involved_companies"]:
+        game["companies"] = await fetch_igdb_involved_companies(raw["involved_companies"])
+    else:
+        game["companies"] = []
+
+    if game["companies"]:
+        from gamecubby_api.utils.game_company import upsert_companies
+        upsert_companies(db, game["companies"])
+        db.commit()
 
     return game
 

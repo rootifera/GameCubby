@@ -10,6 +10,7 @@ from ..models.mode import Mode
 from ..models.playerperspective import PlayerPerspective
 from ..models.game_playerperspective import game_playerperspectives
 from ..models.igdb_tag import IGDBTag, game_igdb_tags
+from ..models.game_company import GameCompany
 from ..models import Base
 
 
@@ -41,6 +42,11 @@ class Game(Base):
         "IGDBTag",
         secondary="game_igdb_tags",
         backref="games"
+    )
+    companies = relationship(
+        "GameCompany",
+        backref="game",
+        cascade="all, delete-orphan"
     )
 
     playerperspectives = relationship(

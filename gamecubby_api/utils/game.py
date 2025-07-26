@@ -1,5 +1,4 @@
 from sqlalchemy.orm import Session
-
 from .formatting import format_igdb_game
 from .location import get_location_path
 from .mode import upsert_mode
@@ -16,8 +15,13 @@ from ..models.genre import Genre
 from ..utils.igdb_tag import upsert_igdb_tags
 from sqlalchemy.orm import selectinload
 from ..models.playerperspective import PlayerPerspective
+from ..models.company import Company
+from ..models.game_company import GameCompany
+from ..utils.external import get_igdb_token
 from typing import List, Optional
 import asyncio
+import os
+import httpx
 
 
 def get_game(session: Session, game_id: int) -> Optional[Game]:
@@ -260,9 +264,41 @@ async def add_game_from_igdb(
             rating = None
     updated_at = raw.get("updated_at")
 
-    # 🎯 IGDB tags
     igdb_tag_ids = raw.get("tags", [])
     tags = await upsert_igdb_tags(session, igdb_tag_ids)
+
+    involved_company_ids = raw.get("involved_companies", [])
+    involved_company_data = []
+    company_name_map = {}
+
+    if involved_company_ids:
+        token = await get_igdb_token()
+        headers = {
+            "Client-ID": os.getenv("CLIENT_ID"),
+            "Authorization": f"Bearer {token}"
+        }
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://api.igdb.com/v4/involved_companies",
+                headers=headers,
+                data=f"fields company,developer,publisher,porting,supporting; where id = ({','.join(str(i) for i in involved_company_ids)});"
+            )
+            resp.raise_for_status()
+            involved_company_data = resp.json()
+
+        # Step 2: Fetch company names
+        company_ids = {c["company"] for c in involved_company_data if "company" in c}
+        if company_ids:
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    "https://api.igdb.com/v4/companies",
+                    headers=headers,
+                    data=f"fields id,name; where id = ({','.join(str(i) for i in company_ids)});"
+                )
+                resp.raise_for_status()
+                for c in resp.json():
+                    company_name_map[c["id"]] = c["name"]
 
     collection_list = await fetch_igdb_collection(igdb_id)
     collection_id = None
@@ -333,6 +369,25 @@ async def add_game_from_igdb(
     for tag in tags:
         if tag not in game.igdb_tags:
             game.igdb_tags.append(tag)
+
+    for ic in involved_company_data:
+        cid = ic["company"]
+        name = company_name_map.get(cid, "Unknown")
+
+        company = session.query(Company).filter_by(id=cid).first()
+        if not company:
+            company = Company(id=cid, name=name)
+            session.add(company)
+            session.flush()
+
+        link = GameCompany(
+            company_id=cid,
+            developer=ic.get("developer", False),
+            publisher=ic.get("publisher", False),
+            porting=ic.get("porting", False),
+            supporting=ic.get("supporting", False),
+        )
+        game.companies.append(link)
 
     session.commit()
     session.refresh(game)
