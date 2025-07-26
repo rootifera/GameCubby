@@ -1,7 +1,10 @@
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
-
+from .utils.playerperspective import sync_player_perspectives
+from .utils.mode import sync_modes_from_igdb
+from .utils.genre import sync_genres
+from .db import get_db
 from fastapi import FastAPI
 from dotenv import load_dotenv
 from .utils.storage import ensure_game_folders
@@ -17,11 +20,7 @@ from .routers.storage import downloads_router as downloads_router
 from .routers.modes import router as modes_router
 from .routers.genres import router as genres_router
 from .routers.playerperspectives import router as perspectives_router
-
-from .utils.playerperspective import sync_player_perspectives
-from .utils.mode import sync_modes_from_igdb
-from .utils.genre import sync_genres
-from .db import get_db
+from .routers.company import router as company_router
 
 load_dotenv()
 
@@ -51,12 +50,11 @@ app.include_router(games_router)
 app.include_router(collections_router)
 app.include_router(storage_router)
 app.include_router(sync_storage_router)
-
 app.include_router(downloads_router)
-
 app.include_router(modes_router)
 app.include_router(genres_router)
 app.include_router(perspectives_router)
+app.include_router(company_router)
 
 
 @app.get("/")
