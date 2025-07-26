@@ -1,8 +1,8 @@
-"""Initial schema with perspectives
+"""add igdb tags
 
-Revision ID: 83ebbfb0eb91
+Revision ID: 18533de03618
 Revises: 
-Create Date: 2025-07-25 20:50:55.865473
+Create Date: 2025-07-26 14:50:00.861272
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '83ebbfb0eb91'
+revision: str = '18533de03618'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -42,6 +42,11 @@ def upgrade() -> None:
     sa.Column('name', sa.String(), nullable=False),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('name')
+    )
+    op.create_table('igdb_tags',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('name', sa.String(), nullable=False),
+    sa.PrimaryKeyConstraint('id')
     )
     op.create_table('locations',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -102,6 +107,13 @@ def upgrade() -> None:
     sa.ForeignKeyConstraint(['genre_id'], ['genres.id'], ),
     sa.PrimaryKeyConstraint('game_id', 'genre_id')
     )
+    op.create_table('game_igdb_tags',
+    sa.Column('game_id', sa.Integer(), nullable=False),
+    sa.Column('igdb_tag_id', sa.Integer(), nullable=False),
+    sa.ForeignKeyConstraint(['game_id'], ['games.id'], ),
+    sa.ForeignKeyConstraint(['igdb_tag_id'], ['igdb_tags.id'], ),
+    sa.PrimaryKeyConstraint('game_id', 'igdb_tag_id')
+    )
     op.create_table('game_modes',
     sa.Column('game_id', sa.Integer(), nullable=False),
     sa.Column('mode_id', sa.Integer(), nullable=False),
@@ -140,6 +152,7 @@ def downgrade() -> None:
     op.drop_table('game_playerperspectives')
     op.drop_table('game_platforms')
     op.drop_table('game_modes')
+    op.drop_table('game_igdb_tags')
     op.drop_table('game_genres')
     op.drop_index(op.f('ix_games_igdb_id'), table_name='games')
     op.drop_table('games')
@@ -150,6 +163,7 @@ def downgrade() -> None:
     op.drop_table('platforms')
     op.drop_table('modes')
     op.drop_table('locations')
+    op.drop_table('igdb_tags')
     op.drop_table('genres')
     op.drop_table('files')
     op.drop_table('collections')

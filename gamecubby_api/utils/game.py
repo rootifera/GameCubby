@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 
 from .formatting import format_igdb_game
 from .location import get_location_path
+from .mode import upsert_mode
 from ..models.location import Location
 from ..utils.external import fetch_igdb_game, fetch_igdb_collection
 from ..utils.platform import upsert_platform
@@ -12,7 +13,9 @@ from ..models.collection import Collection
 from ..models.mode import Mode
 from ..models.platform import Platform
 from ..models.genre import Genre
+from ..utils.igdb_tag import upsert_igdb_tags
 from sqlalchemy.orm import selectinload
+from ..models.playerperspective import PlayerPerspective
 from typing import List, Optional
 import asyncio
 
@@ -240,16 +243,6 @@ async def add_game_from_igdb(
         condition: int | None = None,
         order: int | None = None
 ):
-    from ..utils.formatting import format_igdb_game
-    from ..models.mode import Mode
-    from ..utils.mode import upsert_mode
-    from ..models.genre import Genre
-    from ..models.platform import Platform
-    from ..utils.platform import upsert_platform
-    from ..models.tag import Tag
-    from ..models.collection import Collection
-    from ..models.playerperspective import PlayerPerspective
-
     raw = await fetch_igdb_game(igdb_id)
     if not raw:
         return None
@@ -266,6 +259,10 @@ async def add_game_from_igdb(
         except Exception:
             rating = None
     updated_at = raw.get("updated_at")
+
+    # 🎯 IGDB tags
+    igdb_tag_ids = raw.get("tags", [])
+    tags = await upsert_igdb_tags(session, igdb_tag_ids)
 
     collection_list = await fetch_igdb_collection(igdb_id)
     collection_id = None
@@ -333,10 +330,13 @@ async def add_game_from_igdb(
             if p not in game.playerperspectives:
                 game.playerperspectives.append(p)
 
+    for tag in tags:
+        if tag not in game.igdb_tags:
+            game.igdb_tags.append(tag)
+
     session.commit()
     session.refresh(game)
     return game
-
 
 
 async def refresh_game_metadata(session: Session, game_id: int) -> (Game, bool, str):
