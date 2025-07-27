@@ -21,6 +21,7 @@ from .routers.modes import router as modes_router
 from .routers.genres import router as genres_router
 from .routers.playerperspectives import router as perspectives_router
 from .routers.company import router as company_router
+from .routers.search import router as search_router
 
 load_dotenv()
 
@@ -55,7 +56,7 @@ app.include_router(modes_router)
 app.include_router(genres_router)
 app.include_router(perspectives_router)
 app.include_router(company_router)
-
+app.include_router(search_router)
 
 @app.get("/")
 def read_root():
