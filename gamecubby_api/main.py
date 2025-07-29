@@ -1,12 +1,19 @@
 import logging
+
+logging.getLogger("passlib.handlers.bcrypt").setLevel(logging.ERROR)
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
+from .utils.auth import ensure_default_admin
 from .utils.playerperspective import sync_player_perspectives
 from .utils.mode import sync_modes_from_igdb
 from .utils.genre import sync_genres
 from .db import get_db
 from fastapi import FastAPI
-from dotenv import load_dotenv
 from .utils.storage import ensure_game_folders
 from .routers import igdb
 from .routers.tags import router as tags_router
@@ -22,8 +29,11 @@ from .routers.genres import router as genres_router
 from .routers.playerperspectives import router as perspectives_router
 from .routers.company import router as company_router
 from .routers.search import router as search_router
+from .routers.auth import router as auth_router
 
-load_dotenv()
+import os
+
+print("[DEBUG] SECRET_KEY =", os.getenv("SECRET_KEY"))
 
 
 @asynccontextmanager
@@ -32,11 +42,12 @@ async def lifespan(app: FastAPI):
 
     db = next(get_db())
     try:
+        ensure_default_admin(db)
         await sync_player_perspectives(db)
         await sync_modes_from_igdb(db)
         await sync_genres(db)
     except Exception as e:
-        print(f"[Startup Sync Warning] Failed to sync some IGDB data: {e}")
+        print(f"[Startup Sync Warning] Failed: {e}")
 
     yield
 
@@ -57,6 +68,8 @@ app.include_router(genres_router)
 app.include_router(perspectives_router)
 app.include_router(company_router)
 app.include_router(search_router)
+app.include_router(auth_router)
+
 
 @app.get("/")
 def read_root():
