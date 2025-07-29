@@ -1,7 +1,8 @@
 import logging
+logging.getLogger("passlib.handlers.bcrypt").setLevel(logging.ERROR)
+
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
-
 from .utils.auth import ensure_default_admin
 from .utils.playerperspective import sync_player_perspectives
 from .utils.mode import sync_modes_from_igdb
@@ -25,9 +26,7 @@ from .routers.playerperspectives import router as perspectives_router
 from .routers.company import router as company_router
 from .routers.search import router as search_router
 from .routers.auth import router as auth_router
-import warnings
 
-warnings.filterwarnings("ignore", message=".*error reading bcrypt version.*")
 
 load_dotenv()
 

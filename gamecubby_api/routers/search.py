@@ -144,21 +144,6 @@ def suggest_igdb_tags(request: Request):
     return search_igdb_tag_suggestions(request)
 
 
-@router.get("/suggest/igdb_tags", openapi_extra={
-    "parameters": [
-        {
-            "name": "q",
-            "in": "query",
-            "required": True,
-            "schema": {"type": "string"},
-            "description": "Partial IGDB tag name"
-        }
-    ]
-})
-def suggest_igdb_tags(request: Request):
-    return search_igdb_tag_suggestions(request)
-
-
 @router.get("/suggest/modes", openapi_extra={
     "parameters": [
         {
