@@ -11,6 +11,7 @@ load_dotenv()
 import os
 import httpx
 from fastapi import APIRouter, HTTPException, Depends
+from ..utils.auth import get_current_admin
 
 router = APIRouter(tags=["IGDB"])
 
@@ -39,13 +40,12 @@ async def search_games(name: str, db: Session = Depends(get_db)):
     return [format_igdb_game(game, db) for game in results]
 
 
-@router.get("/game/{igdb_id}")
+@router.get("/game/{igdb_id}", dependencies=[Depends(get_current_admin)])
 async def get_igdb_game_by_id(
-    igdb_id: int,
-    db: Session = Depends(get_db)
+        igdb_id: int,
+        db: Session = Depends(get_db)
 ):
     raw = await fetch_igdb_game(igdb_id)
-    print("RAW IGDB:", raw)
     if not raw:
         raise HTTPException(status_code=404, detail="Game not found on IGDB")
 
@@ -78,8 +78,7 @@ async def get_igdb_game_by_id(
     return game
 
 
-
-@router.get("/collection_lookup/{game_id}")
+@router.get("/collection_lookup/{game_id}", dependencies=[Depends(get_current_admin)])
 async def collection_lookup(game_id: int):
     result = await fetch_igdb_collection(game_id)
     return result

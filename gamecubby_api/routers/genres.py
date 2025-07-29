@@ -3,11 +3,12 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..utils.genre import sync_genres
 from ..models.genre import Genre
+from ..utils.auth import get_current_admin
 
 router = APIRouter(prefix="/genres", tags=["Genres"])
 
 
-@router.post("/sync")
+@router.post("/sync", dependencies=[Depends(get_current_admin)])
 async def sync_genres_endpoint(db: Session = Depends(get_db)):
     try:
         genres = await sync_genres(db)
