@@ -1,5 +1,10 @@
 import logging
+
 logging.getLogger("passlib.handlers.bcrypt").setLevel(logging.ERROR)
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
@@ -9,7 +14,6 @@ from .utils.mode import sync_modes_from_igdb
 from .utils.genre import sync_genres
 from .db import get_db
 from fastapi import FastAPI
-from dotenv import load_dotenv
 from .utils.storage import ensure_game_folders
 from .routers import igdb
 from .routers.tags import router as tags_router
@@ -27,8 +31,9 @@ from .routers.company import router as company_router
 from .routers.search import router as search_router
 from .routers.auth import router as auth_router
 
+import os
 
-load_dotenv()
+print("[DEBUG] SECRET_KEY =", os.getenv("SECRET_KEY"))
 
 
 @asynccontextmanager
@@ -64,6 +69,8 @@ app.include_router(perspectives_router)
 app.include_router(company_router)
 app.include_router(search_router)
 app.include_router(auth_router)
+
+
 @app.get("/")
 def read_root():
     return {

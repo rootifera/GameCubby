@@ -1,10 +1,13 @@
-from fastapi import APIRouter, Request, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException
 from sqlalchemy.orm import Session
-from jose import jwt
 from datetime import datetime, timedelta, timezone
 from passlib.context import CryptContext
 from ..db import get_db
+from ..schemas.admin import LoginRequest, PasswordChangeRequest
+from ..utils.auth import get_current_admin
+from fastapi import Depends
+from jose import jwt
+from starlette.status import HTTP_204_NO_CONTENT
 from ..models.admin import AdminUser
 import os
 
@@ -13,11 +16,6 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 SECRET_KEY = os.getenv("SECRET_KEY", "changeme")
 ALGORITHM = "HS256"
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
 
 
 @router.post("/login")
@@ -40,3 +38,14 @@ def login(request: LoginRequest):
         return {"access_token": token, "token_type": "bearer"}
     finally:
         db_gen.close()
+
+
+@router.post("/change-password", status_code=HTTP_204_NO_CONTENT)
+def change_password(data: PasswordChangeRequest, admin: AdminUser = Depends(get_current_admin),
+                    db: Session = Depends(get_db)):
+    if not pwd_context.verify(data.current_password, admin.password_hash):
+        raise HTTPException(status_code=401, detail="Incorrect current password")
+
+    admin.password_hash = pwd_context.hash(data.new_password)
+    db.add(admin)
+    db.commit()
