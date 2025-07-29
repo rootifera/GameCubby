@@ -1,6 +1,8 @@
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
+
+from .utils.auth import ensure_default_admin
 from .utils.playerperspective import sync_player_perspectives
 from .utils.mode import sync_modes_from_igdb
 from .utils.genre import sync_genres
@@ -22,6 +24,10 @@ from .routers.genres import router as genres_router
 from .routers.playerperspectives import router as perspectives_router
 from .routers.company import router as company_router
 from .routers.search import router as search_router
+from .routers.auth import router as auth_router
+import warnings
+
+warnings.filterwarnings("ignore", message=".*error reading bcrypt version.*")
 
 load_dotenv()
 
@@ -32,11 +38,12 @@ async def lifespan(app: FastAPI):
 
     db = next(get_db())
     try:
+        ensure_default_admin(db)
         await sync_player_perspectives(db)
         await sync_modes_from_igdb(db)
         await sync_genres(db)
     except Exception as e:
-        print(f"[Startup Sync Warning] Failed to sync some IGDB data: {e}")
+        print(f"[Startup Sync Warning] Failed: {e}")
 
     yield
 
@@ -57,7 +64,7 @@ app.include_router(genres_router)
 app.include_router(perspectives_router)
 app.include_router(company_router)
 app.include_router(search_router)
-
+app.include_router(auth_router)
 @app.get("/")
 def read_root():
     return {

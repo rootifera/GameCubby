@@ -12,4 +12,4 @@ from .storage import GameFile
 from .tag import Tag
 from .company import Company
 from .game_company import GameCompany
-
+from .admin import AdminUser
