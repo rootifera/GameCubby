@@ -35,7 +35,7 @@ Pygments==2.19.2
 pytest==8.4.1
 pytest-cov==6.2.1
 python-dotenv==1.0.1
-python-jose==3.3.0
+python-jose==3.5.0
 python-multipart==0.0.20
 PyYAML==6.0.2
 requests==2.32.3
