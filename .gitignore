@@ -208,3 +208,4 @@ __marimo__/
 
 *.db
 storage*
+sonar-project.properties

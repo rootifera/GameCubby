@@ -1,4 +1,10 @@
+import pytest
 from fastapi.testclient import TestClient
+
+@pytest.fixture(scope="module")
+def client():
+    from conftest import get_authenticated_client
+    return get_authenticated_client()
 
 def test_create_and_get_manual_game(client: TestClient):
     resp = client.post("/games/", json={

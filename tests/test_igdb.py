@@ -1,6 +1,11 @@
 import pytest
 from fastapi.testclient import TestClient
 
+@pytest.fixture(scope="module")
+def client():
+    from conftest import get_authenticated_client
+    return get_authenticated_client()
+
 
 @pytest.mark.usefixtures("client")
 def test_igdb_search_returns_results(client: TestClient):

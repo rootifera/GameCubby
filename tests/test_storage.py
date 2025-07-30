@@ -2,7 +2,6 @@ import io
 import pytest
 from fastapi.testclient import TestClient
 
-
 @pytest.fixture(scope="module")
 def client():
     from conftest import get_authenticated_client
