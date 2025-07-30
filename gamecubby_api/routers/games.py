@@ -25,6 +25,7 @@ from ..utils.game_platform import attach_platform, detach_platform, list_platfor
 from ..schemas.tag import Tag as TagSchema
 from ..schemas.platform import Platform as PlatformSchema
 from ..utils.location import get_location_path
+from ..utils.auth import get_current_admin
 
 router = APIRouter(prefix="/games", tags=["Games"])
 
@@ -45,7 +46,7 @@ def get_game_by_id(game_id: int, db: Session = Depends(get_db)):
     return game
 
 
-@router.put("/{game_id}", response_model=GameSchema)
+@router.put("/{game_id}", response_model=GameSchema, dependencies=[Depends(get_current_admin)])
 def edit_game(
         game_id: int,
         game: GameUpdate,
@@ -63,7 +64,7 @@ def edit_game(
         raise HTTPException(status_code=403, detail=str(e))
 
 
-@router.delete("/{game_id}", response_model=bool)
+@router.delete("/{game_id}", response_model=bool, dependencies=[Depends(get_current_admin)])
 def remove_game(game_id: int, db: Session = Depends(get_db)):
     deleted = delete_game(db, game_id)
     if not deleted:
@@ -74,7 +75,7 @@ def remove_game(game_id: int, db: Session = Depends(get_db)):
     return True
 
 
-@router.post("/{game_id}/tags/{tag_id}", response_model=bool)
+@router.post("/{game_id}/tags/{tag_id}", response_model=bool, dependencies=[Depends(get_current_admin)])
 def add_tag_to_game(game_id: int, tag_id: int, db: Session = Depends(get_db)):
     ok = attach_tag(db, game_id, tag_id)
     if not ok:
@@ -82,7 +83,7 @@ def add_tag_to_game(game_id: int, tag_id: int, db: Session = Depends(get_db)):
     return True
 
 
-@router.delete("/{game_id}/tags/{tag_id}", response_model=bool)
+@router.delete("/{game_id}/tags/{tag_id}", response_model=bool, dependencies=[Depends(get_current_admin)])
 def remove_tag_from_game(game_id: int, tag_id: int, db: Session = Depends(get_db)):
     detach_tag(db, game_id, tag_id)
     return True
@@ -93,7 +94,7 @@ def get_tags_for_game(game_id: int, db: Session = Depends(get_db)):
     return list_tags_for_game(db, game_id)
 
 
-@router.post("/{game_id}/platforms/{platform_id}", response_model=bool)
+@router.post("/{game_id}/platforms/{platform_id}", response_model=bool, dependencies=[Depends(get_current_admin)])
 def add_platform_to_game(game_id: int, platform_id: int, db: Session = Depends(get_db)):
     ok = attach_platform(db, game_id, platform_id)
     if not ok:
@@ -101,7 +102,7 @@ def add_platform_to_game(game_id: int, platform_id: int, db: Session = Depends(g
     return True
 
 
-@router.delete("/{game_id}/platforms/{platform_id}", response_model=bool)
+@router.delete("/{game_id}/platforms/{platform_id}", response_model=bool, dependencies=[Depends(get_current_admin)])
 def remove_platform_from_game(game_id: int, platform_id: int, db: Session = Depends(get_db)):
     detach_platform(db, game_id, platform_id)
     return True
@@ -112,7 +113,7 @@ def get_platforms_for_game(game_id: int, db: Session = Depends(get_db)):
     return list_platforms_for_game(db, game_id)
 
 
-@router.post("/{game_id}/assign_location", response_model=GameSchema)
+@router.post("/{game_id}/assign_location", response_model=GameSchema, dependencies=[Depends(get_current_admin)])
 def assign_location(game_id: int, req: AssignLocationRequest, db: Session = Depends(get_db)):
     updated = update_game(db, game_id, {"location_id": req.location_id, "order": req.order})
     if not updated:
@@ -123,7 +124,7 @@ def assign_location(game_id: int, req: AssignLocationRequest, db: Session = Depe
     return updated
 
 
-@router.post("/from_igdb", response_model=GameSchema)
+@router.post("/from_igdb", response_model=GameSchema, dependencies=[Depends(get_current_admin)])
 async def add_game_from_igdb_endpoint(
         req: AddGameFromIGDBRequest, db: Session = Depends(get_db)
 ):
@@ -166,13 +167,13 @@ async def get_game_location_path(
     return {"location_path": path}
 
 
-@router.post("/", response_model=GameSchema)
+@router.post("/", response_model=GameSchema, dependencies=[Depends(get_current_admin)])
 def add_game(game: GameCreate, db: Session = Depends(get_db)):
     game_obj = create_game(db, game.dict())
     return game_obj
 
 
-@router.post("/{game_id}/refresh_metadata")
+@router.post("/{game_id}/refresh_metadata", dependencies=[Depends(get_current_admin)])
 async def refresh_metadata_endpoint(game_id: int, db: Session = Depends(get_db)):
     game, updated, msg = await refresh_game_metadata(db, game_id)
     if not game:
@@ -184,7 +185,7 @@ async def refresh_metadata_endpoint(game_id: int, db: Session = Depends(get_db))
     }
 
 
-@router.post("/refresh_all_metadata")
+@router.post("/refresh_all_metadata", dependencies=[Depends(get_current_admin)])
 async def refresh_all_metadata_endpoint(
         background_tasks: BackgroundTasks,
         db: Session = Depends(get_db)
@@ -200,7 +201,7 @@ async def refresh_all_metadata_endpoint(
     return {"status": "started", "detail": "Refreshing all IGDB games in background. Check logs for progress."}
 
 
-@router.post("/force_refresh_metadata")
+@router.post("/force_refresh_metadata", dependencies=[Depends(get_current_admin)])
 async def force_refresh_metadata_endpoint(
         background_tasks: BackgroundTasks,
         db: Session = Depends(get_db)

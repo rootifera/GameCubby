@@ -3,11 +3,12 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..utils.playerperspective import sync_player_perspectives
 from ..models.playerperspective import PlayerPerspective
+from ..utils.auth import get_current_admin
 
 router = APIRouter(prefix="/perspectives", tags=["Player Perspectives"])
 
 
-@router.post("/sync", response_model=dict)
+@router.post("/sync", response_model=dict, dependencies=[Depends(get_current_admin)])
 async def sync_perspectives(db: Session = Depends(get_db)):
     try:
         count = await sync_player_perspectives(db)

@@ -33,7 +33,7 @@ from .routers.auth import router as auth_router
 
 import os
 
-print("[DEBUG] SECRET_KEY =", os.getenv("SECRET_KEY"))
+#print("[DEBUG] SECRET_KEY =", os.getenv("SECRET_KEY"))
 
 
 @asynccontextmanager
