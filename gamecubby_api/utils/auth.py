@@ -55,3 +55,7 @@ def get_current_admin(
 
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
+
+
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
