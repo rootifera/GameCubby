@@ -1,24 +1,10 @@
-alembic==1.16.4
-annotated-types @ file:///croot/annotated-types_1709542908624/work
-anyio @ file:///croot/anyio_1745334642479/work
-certifi==2025.7.14
-click==8.2.1
-fastapi @ file:///croot/fastapi_1724789151288/work
-greenlet==3.2.3
-h11==0.16.0
-httpcore==1.0.9
+aiofiles==24.1.0
+fastapi==0.116.1
 httpx==0.28.1
-idna @ file:///croot/idna_1714398848350/work
-Mako==1.3.10
-MarkupSafe==3.0.2
-pydantic @ file:///croot/pydantic_1750768261732/work
-pydantic_core @ file:///croot/pydantic-core_1750754736071/work
+passlib==1.7.4
+pydantic==2.11.7
 python-dotenv==1.1.1
-setuptools==78.1.1
-sniffio @ file:///croot/sniffio_1705431295498/work
-SQLAlchemy==2.0.41
-starlette @ file:///croot/starlette-recipe_1724683205298/work
-typing-inspection @ file:///croot/typing-inspection_1746023470701/work
-typing_extensions @ file:///croot/typing_extensions_1734714854207/work
-uvicorn==0.35.0
-wheel==0.45.1
+python_jose==3.5.0
+Requests==2.32.4
+SQLAlchemy==2.0.42
+starlette==0.47.2
