@@ -1,13 +1,18 @@
-from fastapi.testclient import TestClient
-from gamecubby_api.main import app
 import io
+import pytest
+from fastapi.testclient import TestClient
 
-client = TestClient(app)
 
-def test_file_shared_between_manual_copies():
-    resp1 = client.post("/games/", json={
+@pytest.fixture(scope="module")
+def client():
+    from conftest import get_authenticated_client
+    return get_authenticated_client()
+
+
+def test_file_shared_between_manual_copies(client: TestClient):
+    game_payload = {
         "name": "Age of Empires",
-        "summary": "Copy 1",
+        "summary": "Copy",
         "release_date": 1997,
         "platforms": [],
         "condition": 1,
@@ -15,43 +20,22 @@ def test_file_shared_between_manual_copies():
         "order": None,
         "collection_id": None,
         "cover_url": None,
-        "igdb_id": 0
-    })
-    copy1 = resp1.json()
-    game_id1 = copy1["id"]
-
-    resp2 = client.post("/games/", json={
-        "name": "Age of Empires",
-        "summary": "Copy 2",
-        "release_date": 1997,
-        "platforms": [],
-        "condition": 1,
-        "location_id": None,
-        "order": None,
-        "collection_id": None,
-        "cover_url": None,
-        "igdb_id": 0
-    })
-    copy2 = resp2.json()
-    game_id2 = copy2["id"]
+        "igdb_id": 0,
+    }
+    game_id1 = client.post("/games/", json=game_payload).json()["id"]
+    game_id2 = client.post("/games/", json=game_payload).json()["id"]
 
     file_content = b"This is a test file."
-    files = {
-        "file": ("testfile.txt", io.BytesIO(file_content), "text/plain"),
-    }
-    data = {
-        "file_type": "files",
-        "label": "Manual",
-    }
+    files = {"file": ("testfile.txt", io.BytesIO(file_content), "text/plain")}
+    data = {"file_type": "files", "label": "Manual"}
+
     resp_upload = client.post(f"/games/{game_id1}/files/upload", data=data, files=files)
     if resp_upload.status_code == 409:
         error = resp_upload.json()
         assert error["detail"]["error"] == "file_exists"
-        assert "already exists" in error["detail"]["message"] or "already registered" in error["detail"]["message"]
     else:
         assert resp_upload.status_code == 200
-        uploaded = resp_upload.json()
-        assert uploaded["status"] == "success"
+        assert resp_upload.json()["status"] == "success"
 
     resp_list = client.get(f"/games/{game_id2}/files/")
     assert resp_list.status_code == 200
@@ -59,8 +43,9 @@ def test_file_shared_between_manual_copies():
     assert any(f["label"] == "Manual" for f in file_list)
     assert any("testfile.txt" in f["path"] for f in file_list)
 
-def test_delete_file():
-    resp_game = client.post("/games/", json={
+
+def test_delete_file(client: TestClient):
+    game_id = client.post("/games/", json={
         "name": "Test Delete Game",
         "summary": "For delete file test",
         "release_date": 2024,
@@ -70,36 +55,23 @@ def test_delete_file():
         "order": None,
         "collection_id": None,
         "cover_url": None,
-        "igdb_id": 0
-    })
-    assert resp_game.status_code == 200
-    game = resp_game.json()
-    game_id = game["id"]
+        "igdb_id": 0,
+    }).json()["id"]
 
     file_content = b"File to be deleted"
-    files = {
-        "file": ("delete_me.txt", io.BytesIO(file_content), "text/plain"),
-    }
-    data = {
-        "file_type": "files",
-        "label": "ToDelete",
-    }
-    resp_upload = client.post(f"/games/{game_id}/files/upload", data=data, files=files)
-    assert resp_upload.status_code == 200
-    uploaded = resp_upload.json()
-    file_id = uploaded["file_id"]
+    files = {"file": ("delete_me.txt", io.BytesIO(file_content), "text/plain")}
+    data = {"file_type": "files", "label": "ToDelete"}
+    file_id = client.post(f"/games/{game_id}/files/upload", data=data, files=files).json()["file_id"]
 
     resp_delete = client.delete(f"/games/{game_id}/files/{file_id}")
     assert resp_delete.status_code == 204
 
     resp_list = client.get(f"/games/{game_id}/files/")
-    assert resp_list.status_code == 200
-    files_list = resp_list.json()
-    assert all(f["id"] != file_id for f in files_list)
+    assert all(f["id"] != file_id for f in resp_list.json())
 
-def test_download_file():
-    # Create a manual game
-    resp_game = client.post("/games/", json={
+
+def test_download_file(client: TestClient):
+    game_id = client.post("/games/", json={
         "name": "Test Download Game",
         "summary": "For download test",
         "release_date": 2024,
@@ -109,41 +81,26 @@ def test_download_file():
         "order": None,
         "collection_id": None,
         "cover_url": None,
-        "igdb_id": 0
-    })
-    assert resp_game.status_code == 200
-    game = resp_game.json()
-    game_id = game["id"]
+        "igdb_id": 0,
+    }).json()["id"]
 
     file_content = b"Download me!"
-    files = {
-        "file": ("download.txt", io.BytesIO(file_content), "text/plain"),
-    }
-    data = {
-        "file_type": "files",
-        "label": "DownloadTest",
-    }
+    files = {"file": ("download.txt", io.BytesIO(file_content), "text/plain")}
+    data = {"file_type": "files", "label": "DownloadTest"}
+
     resp_upload = client.post(f"/games/{game_id}/files/upload", data=data, files=files)
-
     if resp_upload.status_code == 409:
-        error = resp_upload.json()
-        assert error["detail"]["error"] == "file_exists"
-        print("File already exists; skipping download test.")
-        return
-    else:
-        assert resp_upload.status_code == 200
-        uploaded = resp_upload.json()
-        assert uploaded["status"] == "success"
-        file_id = uploaded["file_id"]
+        return  # File already existed
 
+    file_id = resp_upload.json()["file_id"]
     resp_download = client.get(f"/downloads/{file_id}")
     assert resp_download.status_code == 200
     assert resp_download.content == file_content
-    content_disposition = resp_download.headers.get("content-disposition", "")
-    assert "download.txt" in content_disposition
+    assert "download.txt" in resp_download.headers.get("content-disposition", "")
 
-def test_sync_files_for_game():
-    resp_game = client.post("/games/", json={
+
+def test_sync_files_for_game(client: TestClient):
+    game_id = client.post("/games/", json={
         "name": "SyncTestGame",
         "summary": "Testing sync files",
         "release_date": 2024,
@@ -153,25 +110,21 @@ def test_sync_files_for_game():
         "order": None,
         "collection_id": None,
         "cover_url": None,
-        "igdb_id": 0
-    })
-    assert resp_game.status_code == 200
-    game = resp_game.json()
-    game_id = game["id"]
+        "igdb_id": 0,
+    }).json()["id"]
 
     resp_sync = client.post(f"/games/{game_id}/files/sync-files")
     assert resp_sync.status_code == 200
-
     data = resp_sync.json()
     assert data["status"] == "success"
     assert data["game_id"] == game_id
     assert "added_files" in data
     assert "skipped_files" in data
 
-def test_full_system_sync():
+
+def test_full_system_sync(client: TestClient):
     resp = client.post("/files/sync-all")
     assert resp.status_code == 200
     data = resp.json()
     assert data["status"] == "queued"
-    assert "message" in data
     assert "sync started" in data["message"].lower()

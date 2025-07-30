@@ -71,3 +71,7 @@ async def sync_modes_from_igdb(db):
     for mode in modes:
         upsert_mode(db, mode["id"], mode["name"])
     return len(modes)
+
+
+def get_mode_by_id(db: Session, mode_id: int) -> Mode | None:
+    return db.query(Mode).filter(Mode.id == mode_id).first()

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..schemas.mode import Mode as ModeSchema
-from ..utils.mode import list_modes, assign_mode_to_game, remove_mode_from_game, sync_modes_from_igdb
+from ..utils.mode import list_modes, assign_mode_to_game, remove_mode_from_game, sync_modes_from_igdb, get_mode_by_id
 from ..utils.auth import get_current_admin
 
 router = APIRouter(prefix="/modes", tags=["Modes"])
@@ -41,3 +41,11 @@ async def sync_modes_endpoint(background_tasks: BackgroundTasks, db: Session = D
 
     background_tasks.add_task(run_sync)
     return {"status": "queued", "message": "Mode sync started in background"}
+
+
+@router.get("/{mode_id}", response_model=ModeSchema)
+def get_mode(mode_id: int, db: Session = Depends(get_db)):
+    mode = get_mode_by_id(db, mode_id)
+    if not mode:
+        raise HTTPException(status_code=404, detail="Mode not found")
+    return mode

@@ -1,9 +1,6 @@
 from fastapi.testclient import TestClient
-from gamecubby_api.main import app
 
-client = TestClient(app)
-
-def test_refresh_single_metadata():
+def test_refresh_single_metadata(client: TestClient):
     igdb_id = 126
     resp_igdb = client.get(f"/igdb/game/{igdb_id}")
     assert resp_igdb.status_code == 200
@@ -27,13 +24,12 @@ def test_refresh_single_metadata():
     assert resp_refresh.status_code == 200
     assert "game" in resp_refresh.json() or "id" in resp_refresh.json()
 
-
-def test_refresh_all_metadata():
+def test_refresh_all_metadata(client: TestClient):
     resp = client.post("/games/refresh_all_metadata")
     assert resp.status_code == 200
     assert resp.json()["status"] == "started"
 
-def test_force_refresh_metadata():
+def test_force_refresh_metadata(client: TestClient):
     resp = client.post("/games/force_refresh_metadata")
     assert resp.status_code == 200
     assert resp.json()["status"] == "started"
