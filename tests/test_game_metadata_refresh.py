@@ -1,4 +1,10 @@
+import pytest
 from fastapi.testclient import TestClient
+
+@pytest.fixture(scope="module")
+def client():
+    from conftest import get_authenticated_client
+    return get_authenticated_client()
 
 def test_refresh_single_metadata(client: TestClient):
     igdb_id = 126
