@@ -53,5 +53,8 @@ jobs:
       - name: Run Alembic migrations
         run: alembic upgrade head
 
+      - name: Create default admin user
+        run: python tests/bootstrap_admin.py
+
       - name: Run tests
         run: pytest tests/
