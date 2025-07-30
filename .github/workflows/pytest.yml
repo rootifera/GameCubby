@@ -13,8 +13,8 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: testuser
-          POSTGRES_PASSWORD: testpass
+          POSTGRES_USER: gamecubby
+          POSTGRES_PASSWORD: gamecubby
           POSTGRES_DB: gamecubby
         ports:
           - 5432:5432
@@ -25,7 +25,7 @@ jobs:
           --health-retries 5
 
     env:
-      DATABASE_URL: postgresql://testuser:testpass@localhost:5432/gamecubby
+      DATABASE_URL: postgresql://gamecubby:gamecubby@localhost:5432/gamecubby
       ADMIN_USER: admin
       ADMIN_PASSWORD: admin
 
