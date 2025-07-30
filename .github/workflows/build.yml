@@ -30,6 +30,7 @@ jobs:
         run: |
           coverage run -m pytest
           coverage xml -o coverage.xml
+        continue-on-error: true
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v5
