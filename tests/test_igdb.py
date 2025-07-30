@@ -1,10 +1,9 @@
+import pytest
 from fastapi.testclient import TestClient
-from gamecubby_api.main import app
-
-client = TestClient(app)
 
 
-def test_igdb_search_returns_results():
+@pytest.mark.usefixtures("client")
+def test_igdb_search_returns_results(client: TestClient):
     resp = client.get("/igdb/search", params={"name": "Diablo II"})
     assert resp.status_code == 200
     data = resp.json()
@@ -19,7 +18,8 @@ def test_igdb_search_returns_results():
         assert "summary" in game
 
 
-def test_igdb_search_fields_correct():
+@pytest.mark.usefixtures("client")
+def test_igdb_search_fields_correct(client: TestClient):
     resp = client.get("/igdb/search", params={"name": "Diablo II"})
     assert resp.status_code == 200
     games = resp.json()
@@ -33,8 +33,9 @@ def test_igdb_search_fields_correct():
     assert "action role-playing" in d2["summary"].lower()
 
 
-def test_igdb_game_by_id():
-    igdb_id = 126  # Diablo II
+@pytest.mark.usefixtures("client")
+def test_igdb_game_by_id(client: TestClient):
+    igdb_id = 126
     resp = client.get(f"/igdb/game/{igdb_id}")
     assert resp.status_code == 200
     data = resp.json()
@@ -49,8 +50,9 @@ def test_igdb_game_by_id():
     assert "action role-playing" in data["summary"].lower()
 
 
-def test_igdb_collection_lookup():
-    igdb_id = 126  # Diablo II
+@pytest.mark.usefixtures("client")
+def test_igdb_collection_lookup(client: TestClient):
+    igdb_id = 126
     resp = client.get(f"/igdb/collection_lookup/{igdb_id}")
     assert resp.status_code == 200
     collections = resp.json()

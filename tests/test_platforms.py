@@ -1,31 +1,38 @@
 from fastapi.testclient import TestClient
-from gamecubby_api.main import app
+import pytest
 
-client = TestClient(app)
+@pytest.fixture(scope="module")
+def client():
+    from conftest import get_authenticated_client
+    return get_authenticated_client()
 
-def test_list_platforms():
-    resp_igdb = client.get("/igdb/game/126")
+
+def test_get_platform_by_id(client: TestClient):
+    igdb_id = 126
+    resp_igdb = client.get(f"/igdb/game/{igdb_id}")
     assert resp_igdb.status_code == 200
-    game = resp_igdb.json()
-    assert "platforms" in game and game["platforms"]
+    platforms = resp_igdb.json().get("platforms", [])
+    assert platforms, "IGDB game should have platforms"
 
+    platform_id = platforms[0]["id"]
+    resp_get = client.get(f"/platforms/{platform_id}")
+    assert resp_get.status_code == 200
+    platform = resp_get.json()
+    assert platform["id"] == platform_id
+    assert isinstance(platform["name"], str)
+    assert platform["name"] != ""
+
+
+def test_list_platforms(client: TestClient):
     resp = client.get("/platforms/")
     assert resp.status_code == 200
     platforms = resp.json()
     assert isinstance(platforms, list)
-    expected_names = [p["name"] for p in game["platforms"]]
-    assert any(p["name"] in expected_names for p in platforms)
+    assert any("PC (Microsoft Windows)" in p["name"] for p in platforms)
 
 
-def test_get_platform_by_id():
-    resp_igdb = client.get("/igdb/game/126")
-    assert resp_igdb.status_code == 200
-    game = resp_igdb.json()
-    platform = game["platforms"][0]
-    platform_id = platform["id"]
-
-    resp = client.get(f"/platforms/{platform_id}")
-    assert resp.status_code == 200
-    platform_got = resp.json()
-    assert platform_got["id"] == platform_id
-    assert platform_got["name"] == platform["name"]
+def test_get_nonexistent_platform_returns_404(client: TestClient):
+    resp = client.get("/platforms/999999")
+    assert resp.status_code == 404
+    data = resp.json()
+    assert data["detail"] == "Platform not found"

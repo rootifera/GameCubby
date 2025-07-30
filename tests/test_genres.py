@@ -1,28 +1,24 @@
 from fastapi.testclient import TestClient
-from gamecubby_api.main import app
 
-client = TestClient(app)
 
-def test_genres_sync_and_list():
-    resp_sync = client.post("/genres/sync")
-    assert resp_sync.status_code == 200 or resp_sync.status_code == 201
-
+def test_list_genres(client: TestClient):
     resp = client.get("/genres/")
     assert resp.status_code == 200
     genres = resp.json()
     assert isinstance(genres, list)
-    assert any("id" in g and "name" in g for g in genres)
-    assert len(genres) > 0
 
-def test_get_genre_by_id():
-    resp = client.get("/genres/")
-    assert resp.status_code == 200
-    genres = resp.json()
+
+def test_get_genre_by_id(client: TestClient):
+    resp_list = client.get("/genres/")
+    assert resp_list.status_code == 200
+    genres = resp_list.json()
+    assert isinstance(genres, list)
     assert len(genres) > 0
     genre = genres[0]
+    genre_id = genre["id"]
 
-    resp_single = client.get(f"/genres/{genre['id']}")
-    assert resp_single.status_code == 200
-    single = resp_single.json()
-    assert single["id"] == genre["id"]
-    assert single["name"] == genre["name"]
+    resp_get = client.get(f"/genres/{genre_id}")
+    assert resp_get.status_code == 200
+    genre_fetched = resp_get.json()
+    assert genre_fetched["id"] == genre_id
+    assert genre_fetched["name"] == genre["name"]

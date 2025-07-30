@@ -1,22 +1,21 @@
 from fastapi.testclient import TestClient
-from gamecubby_api.main import app
+import pytest
 
-client = TestClient(app)
-
-
-def test_list_collections():
+def test_list_collections(client: TestClient):
     resp = client.get("/collections/")
     assert resp.status_code == 200
     collections = resp.json()
     assert isinstance(collections, list)
 
-
-def test_get_collection_by_id():
+def test_get_collection_by_id(client: TestClient):
+    # Trigger IGDB lookup to create at least one collection
     client.get("/igdb/game/126")
+
     resp = client.get("/collections/")
     assert resp.status_code == 200
     collections = resp.json()
     assert len(collections) > 0
+
     collection = collections[0]
     collection_id = collection["id"]
 
@@ -26,8 +25,7 @@ def test_get_collection_by_id():
     assert got["id"] == collection_id
     assert got["name"] == collection["name"]
 
-
-def test_get_nonexistent_collection_returns_404():
+def test_get_nonexistent_collection_returns_404(client: TestClient):
     non_existent_id = 999999
     resp = client.get(f"/collections/{non_existent_id}")
     assert resp.status_code == 404
