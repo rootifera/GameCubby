@@ -12,7 +12,7 @@ router = APIRouter(prefix="/genres", tags=["Genres"])
 async def sync_genres_endpoint(db: Session = Depends(get_db)):
     try:
         genres = await sync_genres(db)
-        return {"ok": True, "count": len(genres)}
+        return {"message": "Genres synced successfully.", "count": len(genres)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

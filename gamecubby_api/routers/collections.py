@@ -19,7 +19,8 @@ def add_collection(data: CollectionCreate, db: Session = Depends(get_db)):
 
 @router.get("/", response_model=list[CollectionSchema])
 def get_all_collections(db: Session = Depends(get_db)):
-    return list_collections(db)
+    collections = list_collections(db)
+    return collections
 
 
 @router.get("/{collection_id}", response_model=CollectionSchema)
