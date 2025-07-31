@@ -12,10 +12,10 @@ router = APIRouter(prefix="/locations", tags=["Locations"])
 
 @router.post("/", response_model=LocationSchema, dependencies=[Depends(get_current_admin)])
 def add_location(
-    name: str,
-    parent_id: int = None,
-    type: str = None,
-    db: Session = Depends(get_db)
+        name: str,
+        parent_id: int = None,
+        type: str = None,
+        db: Session = Depends(get_db)
 ):
     location = create_location(db, name, parent_id, type)
     return location
@@ -40,5 +40,5 @@ def get_all_locations(db: Session = Depends(get_db)):
 def get_single_location(location_id: int, db: Session = Depends(get_db)):
     location = get_location(db, location_id)
     if not location:
-        raise HTTPException(status_code=404, detail="Location not found")
+        raise HTTPException(404, "Location not found")
     return location

@@ -5,10 +5,9 @@ from ..schemas.game import (
     Game as GameSchema,
     GameCreate,
     GameUpdate,
-    AssignLocationRequest, AddGameFromIGDBRequest,
+    AssignLocationRequest,
+    AddGameFromIGDBRequest,
 )
-from ..utils.external import fetch_igdb_game
-from ..utils.formatting import format_igdb_game
 from ..utils.game import (
     list_games,
     get_game,
@@ -17,7 +16,10 @@ from ..utils.game import (
     delete_game,
     list_games_by_tag,
     list_games_by_platform,
-    list_games_by_location, add_game_from_igdb, refresh_game_metadata, refresh_all_games_metadata,
+    list_games_by_location,
+    add_game_from_igdb,
+    refresh_game_metadata,
+    refresh_all_games_metadata,
     force_refresh_metadata,
 )
 from ..utils.game_tag import attach_tag, detach_tag, list_tags_for_game
@@ -39,39 +41,26 @@ def get_all_games(db: Session = Depends(get_db)):
 def get_game_by_id(game_id: int, db: Session = Depends(get_db)):
     game = get_game(db, game_id)
     if not game:
-        raise HTTPException(
-            status_code=404,
-            detail={"error": "not_found", "detail": "Game not found"}
-        )
+        raise HTTPException(404, "Game not found")
     return game
 
 
 @router.put("/{game_id}", response_model=GameSchema, dependencies=[Depends(get_current_admin)])
-def edit_game(
-        game_id: int,
-        game: GameUpdate,
-        db: Session = Depends(get_db)
-):
+def edit_game(game_id: int, game: GameUpdate, db: Session = Depends(get_db)):
     try:
         updated = update_game(db, game_id, game.dict())
         if not updated:
-            raise HTTPException(
-                status_code=404,
-                detail={"error": "not_found", "detail": "Game not found"}
-            )
+            raise HTTPException(404, "Game not found")
         return updated
     except ValueError as e:
-        raise HTTPException(status_code=403, detail=str(e))
+        raise HTTPException(403, str(e))
 
 
 @router.delete("/{game_id}", response_model=bool, dependencies=[Depends(get_current_admin)])
 def remove_game(game_id: int, db: Session = Depends(get_db)):
     deleted = delete_game(db, game_id)
     if not deleted:
-        raise HTTPException(
-            status_code=404,
-            detail={"error": "not_found", "detail": "Game not found"}
-        )
+        raise HTTPException(404, "Game not found")
     return True
 
 
@@ -79,7 +68,7 @@ def remove_game(game_id: int, db: Session = Depends(get_db)):
 def add_tag_to_game(game_id: int, tag_id: int, db: Session = Depends(get_db)):
     ok = attach_tag(db, game_id, tag_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Game or Tag not found")
+        raise HTTPException(404, "Game or Tag not found")
     return True
 
 
@@ -98,7 +87,7 @@ def get_tags_for_game(game_id: int, db: Session = Depends(get_db)):
 def add_platform_to_game(game_id: int, platform_id: int, db: Session = Depends(get_db)):
     ok = attach_platform(db, game_id, platform_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Game or Platform not found")
+        raise HTTPException(404, "Game or Platform not found")
     return True
 
 
@@ -117,17 +106,12 @@ def get_platforms_for_game(game_id: int, db: Session = Depends(get_db)):
 def assign_location(game_id: int, req: AssignLocationRequest, db: Session = Depends(get_db)):
     updated = update_game(db, game_id, {"location_id": req.location_id, "order": req.order})
     if not updated:
-        raise HTTPException(
-            status_code=404,
-            detail={"error": "not_found", "detail": "Game not found"}
-        )
+        raise HTTPException(404, "Game not found")
     return updated
 
 
 @router.post("/from_igdb", response_model=GameSchema, dependencies=[Depends(get_current_admin)])
-async def add_game_from_igdb_endpoint(
-        req: AddGameFromIGDBRequest, db: Session = Depends(get_db)
-):
+async def add_game_from_igdb_endpoint(req: AddGameFromIGDBRequest, db: Session = Depends(get_db)):
     game = await add_game_from_igdb(
         db,
         igdb_id=req.igdb_id,
@@ -138,32 +122,15 @@ async def add_game_from_igdb_endpoint(
         order=req.order,
     )
     if not game:
-        raise HTTPException(status_code=404, detail="Game not found on IGDB")
+        raise HTTPException(404, "Game not found on IGDB")
     return game
 
 
 @router.get("/{game_id}/location_path", response_model=dict)
-async def get_game_location_path(
-        game_id: int,
-        db: Session = Depends(get_db)
-):
-    """
-    Returns complete location hierarchy for a game.
-    Example response:
-    {
-        "location_path": [
-            {"id": 1, "name": "bookcase1"},
-            {"id": 4, "name": "shelf3"},
-            {"id": 6, "name": "box2"}
-        ]
-    }
-    """
+async def get_game_location_path(game_id: int, db: Session = Depends(get_db)):
     path = get_location_path(db, game_id)
     if not path:
-        raise HTTPException(
-            status_code=404,
-            detail="Game has no location assigned"
-        )
+        raise HTTPException(404, "Game has no location assigned")
     return {"location_path": path}
 
 
@@ -177,7 +144,7 @@ def add_game(game: GameCreate, db: Session = Depends(get_db)):
 async def refresh_metadata_endpoint(game_id: int, db: Session = Depends(get_db)):
     game, updated, msg = await refresh_game_metadata(db, game_id)
     if not game:
-        raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(404, msg)
     return {
         "updated": updated,
         "message": msg,
@@ -186,14 +153,7 @@ async def refresh_metadata_endpoint(game_id: int, db: Session = Depends(get_db))
 
 
 @router.post("/refresh_all_metadata", dependencies=[Depends(get_current_admin)])
-async def refresh_all_metadata_endpoint(
-        background_tasks: BackgroundTasks,
-        db: Session = Depends(get_db)
-):
-    """
-    Kicks off a background task to refresh all IGDB-backed games.
-    """
-
+async def refresh_all_metadata_endpoint(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     def do_refresh():
         refresh_all_games_metadata(db)
 
@@ -202,14 +162,7 @@ async def refresh_all_metadata_endpoint(
 
 
 @router.post("/force_refresh_metadata", dependencies=[Depends(get_current_admin)])
-async def force_refresh_metadata_endpoint(
-        background_tasks: BackgroundTasks,
-        db: Session = Depends(get_db)
-):
-    """
-    Force-refresh all IGDB games by resetting updated_at to 0 and re-syncing from IGDB.
-    """
-
+async def force_refresh_metadata_endpoint(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     def do_force_refresh():
         force_refresh_metadata(db)
 

@@ -3,6 +3,7 @@ import logging
 logging.getLogger("passlib.handlers.bcrypt").setLevel(logging.ERROR)
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from contextlib import asynccontextmanager
@@ -35,6 +36,7 @@ from .routers.auth import router as auth_router
 
 import os
 
+
 # print("[DEBUG] SECRET_KEY =", os.getenv("SECRET_KEY"))
 
 
@@ -46,7 +48,6 @@ async def lifespan(app: FastAPI):
     try:
         ensure_default_admin(db)
 
-        # Ensure there's at least one location (create default root if missing)
         if not list_all_locations(db):
             print("[Startup] No locations found. Creating 'Default Storage' root.")
             create_location(db, name="Default Storage", parent_id=None, type="root")
@@ -63,21 +64,21 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+app.include_router(auth_router)
 app.include_router(igdb.router, prefix="/igdb")
-app.include_router(tags_router)
-app.include_router(locations_router)
-app.include_router(platforms_router)
 app.include_router(games_router)
 app.include_router(collections_router)
+app.include_router(tags_router)
+app.include_router(genres_router)
+app.include_router(modes_router)
+app.include_router(platforms_router)
+app.include_router(perspectives_router)
+app.include_router(locations_router)
+app.include_router(company_router)
+app.include_router(search_router)
 app.include_router(storage_router)
 app.include_router(sync_storage_router)
 app.include_router(downloads_router)
-app.include_router(modes_router)
-app.include_router(genres_router)
-app.include_router(perspectives_router)
-app.include_router(company_router)
-app.include_router(search_router)
-app.include_router(auth_router)
 
 
 @app.get("/")

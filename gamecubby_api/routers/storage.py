@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, Form, Depends, HTTPException, File, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, Form, File
 from sqlalchemy.orm import Session
 from typing import List, Literal
 from ..db import get_db
@@ -10,6 +10,7 @@ from ..utils.storage import (
     sync_game_files, sync_all_files, get_downloadable_file
 )
 from ..utils.auth import get_current_admin
+from ..utils.response import success_response, error_response
 
 import logging
 
@@ -24,23 +25,24 @@ downloads_router = APIRouter(prefix='/downloads', tags=['Downloads'])
 def list_files(game_id: int, db: Session = Depends(get_db)) -> List[FileResponse]:
     game = db.get(Game, game_id)
     if not game:
-        raise HTTPException(status_code=404, detail="Game not found")
+        return error_response("Game not found", 404)
     game_ref = str(game.igdb_id) if game.igdb_id else "".join(c for c in game.name.lower() if c.isalnum())
-    return db.query(GameFile).filter(GameFile.game == game_ref).all()
+    files = db.query(GameFile).filter(GameFile.game == game_ref).all()
+    return success_response(data={"files": files})
 
 
 @router.post('/upload', response_model=dict)
 async def upload_file(
-    game_id: int,
-    file_type: Literal['isos', 'images', 'files'] = Form(...),
-    label: str = Form(...),
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db),
-    admin=Depends(get_current_admin)
+        game_id: int,
+        file_type: Literal['isos', 'images', 'files'] = Form(...),
+        label: str = Form(...),
+        file: UploadFile = File(...),
+        db: Session = Depends(get_db),
+        admin=Depends(get_current_admin)
 ) -> dict:
     game = db.get(Game, game_id)
     if not game:
-        raise HTTPException(status_code=404, detail="Game not found")
+        return error_response("Game not found", 404)
 
     safe_name = sanitize_filename(file.filename)
 
@@ -49,33 +51,28 @@ async def upload_file(
             db=db, game=game, upload_file=file,
             file_type=file_type, label=label, safe_filename=safe_name
         )
-        return {
-            "status": "success",
+        return success_response(data={
             "file_id": file_record.id,
             "path": file_record.path,
             "game_ref": file_record.game
-        }
+        })
     except ValueError as e:
         if "already exists" in str(e) or "already registered" in str(e):
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "error": "file_exists",
-                    "message": str(e),
-                    "suggested_action": "Use a different filename or manage the existing file"
-                }
+            return error_response(
+                f"File already exists: {str(e)}",
+                409
             )
-        raise HTTPException(status_code=400, detail=str(e))
+        return error_response(str(e), 400)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+        return error_response(f"Upload failed: {str(e)}", 500)
 
 
 @router.delete('/{file_id}', status_code=204)
 async def delete_file(
-    game_id: int,
-    file_id: int,
-    db: Session = Depends(get_db),
-    admin=Depends(get_current_admin)
+        game_id: int,
+        file_id: int,
+        db: Session = Depends(get_db),
+        admin=Depends(get_current_admin)
 ) -> None:
     game = db.get(Game, game_id)
     if not game:
@@ -96,32 +93,31 @@ async def delete_file(
 
 @router.post("/sync-files", response_model=dict)
 def sync_files(
-    game_id: int,
-    db: Session = Depends(get_db),
-    admin=Depends(get_current_admin)
+        game_id: int,
+        db: Session = Depends(get_db),
+        admin=Depends(get_current_admin)
 ) -> dict:
     game = db.get(Game, game_id)
     if not game:
-        raise HTTPException(404, "Game not found")
+        return error_response("Game not found", 404)
 
     try:
         added, skipped = sync_game_files(db, game)
-        return {
-            "status": "success",
+        return success_response(data={
             "game_id": game_id,
             "added_files": added,
             "skipped_files": skipped
-        }
+        })
     except Exception as e:
         db.rollback()
-        raise HTTPException(500, detail=f"Sync failed: {str(e)}")
+        return error_response(f"Sync failed: {str(e)}", 500)
 
 
 @system_files_router.post("/sync-all", response_model=dict)
 def full_system_sync(
-    background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db),
-    admin=Depends(get_current_admin)
+        background_tasks: BackgroundTasks,
+        db: Session = Depends(get_db),
+        admin=Depends(get_current_admin)
 ) -> dict:
     def _run_sync():
         try:
@@ -131,12 +127,12 @@ def full_system_sync(
             logger.error(f"Sync failed: {str(e)}")
 
     background_tasks.add_task(_run_sync)
-    return {
-        "status": "queued",
-        "message": "Full filesystem sync started in background"
-    }
+    return success_response(message="Full filesystem sync started in background.")
 
 
 @downloads_router.get("/{file_id}")
 async def download_file(file_id: int, db: Session = Depends(get_db)) -> FileResponse:
-    return get_downloadable_file(db, file_id)
+    try:
+        return get_downloadable_file(db, file_id)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))

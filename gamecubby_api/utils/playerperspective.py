@@ -38,3 +38,7 @@ async def sync_player_perspectives(db: Session) -> int:
             db.add(PlayerPerspective(id=entry["id"], name=entry["name"]))
     db.commit()
     return len(data)
+
+
+def get_player_perspective_by_id(db: Session, perspective_id: int) -> PlayerPerspective | None:
+    return db.query(PlayerPerspective).filter(PlayerPerspective.id == perspective_id).first()
