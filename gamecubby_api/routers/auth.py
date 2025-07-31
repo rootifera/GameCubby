@@ -1,20 +1,17 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
 from passlib.context import CryptContext
+from starlette.status import HTTP_204_NO_CONTENT
+
 from ..db import get_db
 from ..schemas.admin import LoginRequest, PasswordChangeRequest
 from ..utils.auth import get_current_admin
-from fastapi import Depends
-from jose import jwt
-from starlette.status import HTTP_204_NO_CONTENT
 from ..models.admin import AdminUser
-import os
+from ..utils.jwt import create_access_token  # ⬅️ new helper
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-SECRET_KEY = os.getenv("SECRET_KEY", "changeme")
-ALGORITHM = "HS256"
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
@@ -34,15 +31,18 @@ def login(request: LoginRequest):
             "exp": datetime.now(timezone.utc) + timedelta(hours=24)
         }
 
-        token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+        token = create_access_token(payload)  # ⬅️ new usage
         return {"access_token": token, "token_type": "bearer"}
     finally:
         db_gen.close()
 
 
 @router.post("/change-password", status_code=HTTP_204_NO_CONTENT)
-def change_password(data: PasswordChangeRequest, admin: AdminUser = Depends(get_current_admin),
-                    db: Session = Depends(get_db)):
+def change_password(
+        data: PasswordChangeRequest,
+        admin: AdminUser = Depends(get_current_admin),
+        db: Session = Depends(get_db)
+):
     if not pwd_context.verify(data.current_password, admin.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect current password")
 

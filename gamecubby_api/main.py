@@ -3,18 +3,20 @@ import logging
 logging.getLogger("passlib.handlers.bcrypt").setLevel(logging.ERROR)
 
 from dotenv import load_dotenv
-
 load_dotenv()
 
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
+from fastapi import FastAPI
+
+from .db import get_db
 from .utils.auth import ensure_default_admin
 from .utils.playerperspective import sync_player_perspectives
 from .utils.mode import sync_modes_from_igdb
 from .utils.genre import sync_genres
-from .db import get_db
-from fastapi import FastAPI
 from .utils.storage import ensure_game_folders
+from .utils.location import create_location, list_all_locations
+
 from .routers import igdb
 from .routers.tags import router as tags_router
 from .routers.locations import router as locations_router
@@ -33,7 +35,7 @@ from .routers.auth import router as auth_router
 
 import os
 
-#print("[DEBUG] SECRET_KEY =", os.getenv("SECRET_KEY"))
+# print("[DEBUG] SECRET_KEY =", os.getenv("SECRET_KEY"))
 
 
 @asynccontextmanager
@@ -43,9 +45,16 @@ async def lifespan(app: FastAPI):
     db = next(get_db())
     try:
         ensure_default_admin(db)
+
+        # Ensure there's at least one location (create default root if missing)
+        if not list_all_locations(db):
+            print("[Startup] No locations found. Creating 'Default Storage' root.")
+            create_location(db, name="Default Storage", parent_id=None, type="root")
+
         await sync_player_perspectives(db)
         await sync_modes_from_igdb(db)
         await sync_genres(db)
+
     except Exception as e:
         print(f"[Startup Sync Warning] Failed: {e}")
 
