@@ -54,3 +54,7 @@ def get_location_path(session: Session, game_id: int) -> list[dict]:
     ]
 
     return path
+
+def get_default_location_id(session: Session) -> int | None:
+    default = session.query(Location).filter_by(name="Default Storage").first()
+    return default.id if default else None

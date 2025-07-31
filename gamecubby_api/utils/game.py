@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from .formatting import format_igdb_game
-from .location import get_location_path
+from .location import get_location_path, get_default_location_id
 from .mode import upsert_mode
 from ..models.location import Location
 from ..utils.external import fetch_igdb_game, fetch_igdb_collection
@@ -94,6 +94,10 @@ def create_game(session: Session, game_data: dict):
     from ..models.genre import Genre
     from ..models.playerperspective import PlayerPerspective
 
+    # Fallback location_id before popping keys
+    if game_data.get("location_id") in (None, 0):
+        game_data["location_id"] = get_default_location_id(session)
+
     mode_ids = game_data.pop("mode_ids", [])
     platform_ids = game_data.pop("platform_ids", [])
     genre_ids = game_data.pop("genre_ids", [])
@@ -148,6 +152,12 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
             raise ValueError("Cannot update IGDB-sourced games except location/order")
 
     update_data.pop('igdb_id', None)
+
+    # Handle location_id fallback
+    if "location_id" in update_data:
+        loc_id = update_data["location_id"]
+        if loc_id in (None, 0):
+            update_data["location_id"] = get_default_location_id(session)
 
     mode_ids = update_data.pop("mode_ids", None)
     if mode_ids is not None:
@@ -287,7 +297,6 @@ async def add_game_from_igdb(
             resp.raise_for_status()
             involved_company_data = resp.json()
 
-        # Step 2: Fetch company names
         company_ids = {c["company"] for c in involved_company_data if "company" in c}
         if company_ids:
             async with httpx.AsyncClient() as client:
@@ -312,13 +321,15 @@ async def add_game_from_igdb(
             session.refresh(collection)
         collection_id = collection.id
 
+    final_location_id = location_id if location_id not in (None, 0) else get_default_location_id(session)
+
     game = Game(
         igdb_id=igdb_id,
         name=name,
         summary=summary,
         release_date=release_date,
         cover_url=cover_url,
-        location_id=location_id,
+        location_id=final_location_id,
         condition=condition,
         order=order,
         collection_id=collection_id,

@@ -5,8 +5,8 @@ from ..models import Base
 game_igdb_tags = Table(
     "game_igdb_tags",
     Base.metadata,
-    Column("game_id", Integer, ForeignKey("games.id"), primary_key=True),
-    Column("igdb_tag_id", Integer, ForeignKey("igdb_tags.id"), primary_key=True),
+    Column("game_id", Integer, ForeignKey("games.id", ondelete="CASCADE"), primary_key=True),
+    Column("igdb_tag_id", Integer, ForeignKey("igdb_tags.id", ondelete="CASCADE"), primary_key=True),
 )
 
 class IGDBTag(Base):
