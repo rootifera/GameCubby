@@ -11,7 +11,8 @@ import aiofiles
 from typing import Literal
 from ..models.storage import GameFile
 from fastapi.responses import FileResponse
-
+import logging
+from shutil import rmtree
 
 STORAGE_ROOT = Path("./storage")
 UPLOADS_DIR = STORAGE_ROOT / "uploads"
@@ -125,7 +126,6 @@ async def delete_game_file(
 
 
 def sanitize_filename(filename: str) -> str:
-
     clean_name = Path(filename).name
 
     stem, suffix = Path(clean_name).stem, Path(clean_name).suffix
@@ -139,18 +139,18 @@ def sanitize_filename(filename: str) -> str:
 
     return f"{clean_stem}{suffix}"[:255]
 
-def sync_game_files(
-    db: Session,
-    game: Game,
-    file_types: List[str] = ["isos", "images", "files"]
-) -> Tuple[int, int]:
 
+def sync_game_files(
+        db: Session,
+        game: Game,
+        file_types: List[str] = ["isos", "images", "files"]
+) -> Tuple[int, int]:
     game_ref = str(game.igdb_id) if game.igdb_id else \
         "".join(c for c in game.name.lower() if c.isalnum())
 
     base_path = Path("storage/uploads") / \
-               ("igdb" if game.igdb_id else "local") / \
-               game_ref
+                ("igdb" if game.igdb_id else "local") / \
+                game_ref
 
     added = 0
     skipped = 0
@@ -181,7 +181,6 @@ def sync_game_files(
 
 
 def sync_all_files(db: Session) -> dict:
-
     results = {
         "total_added": 0,
         "total_skipped": 0,
@@ -189,19 +188,23 @@ def sync_all_files(db: Session) -> dict:
     }
 
     storage_root = Path("storage/uploads")
+    logging.debug(f"Starting sync_all_files in {storage_root.resolve()}")
 
     for platform in ["igdb", "local"]:
         platform_path = storage_root / platform
         if not platform_path.exists():
+            logging.warning(f"Platform path {platform_path} does not exist, skipping.")
             continue
 
         for game_ref in platform_path.iterdir():
             if game_ref.is_dir():
+                logging.debug(f"Processing game folder: {game_ref.name}")
                 game_results = {"added": 0, "skipped": 0}
 
                 for file_type in ["isos", "images", "files"]:
                     type_path = game_ref / file_type
                     if not type_path.exists():
+                        logging.debug(f"File type folder {type_path} missing, skipping.")
                         continue
 
                     for file_path in type_path.iterdir():
@@ -217,15 +220,49 @@ def sync_all_files(db: Session) -> dict:
                                     label="File Found"
                                 ))
                                 game_results["added"] += 1
+                                logging.info(f"Added new file record for {file_path}")
                             else:
                                 game_results["skipped"] += 1
+                                logging.debug(f"Skipped existing file record {file_path}")
 
                 results["total_added"] += game_results["added"]
                 results["total_skipped"] += game_results["skipped"]
                 results["game_results"][game_ref.name] = game_results
 
     db.commit()
+    logging.info(f"Initial sync completed: {results['total_added']} files added, {results['total_skipped']} skipped.")
+
+    db_game_refs = set()
+
+    igdb_ids = db.query(Game.igdb_id).filter(Game.igdb_id.isnot(None), Game.igdb_id != 0).all()
+    db_game_refs.update(str(row[0]) for row in igdb_ids if row[0])
+
+    local_games = db.query(Game.name).filter(Game.igdb_id == 0).all()
+    for row in local_games:
+        name = row[0]
+        if name:
+            normalized = "".join(c for c in name.lower() if c.isalnum())
+            db_game_refs.add(normalized)
+
+    for platform in ["igdb", "local"]:
+        platform_path = storage_root / platform
+        if not platform_path.exists():
+            continue
+
+        for game_ref in platform_path.iterdir():
+            if game_ref.is_dir():
+                if game_ref.name not in db_game_refs:
+                    logging.info(f"Deleting orphaned folder {game_ref}")
+                    rmtree(game_ref)
+
+                    orphan_files = db.query(GameFile).filter(GameFile.game == game_ref.name).all()
+                    for f in orphan_files:
+                        db.delete(f)
+                    db.commit()
+                    logging.info(f"Deleted {len(orphan_files)} orphaned file records from DB.")
+
     return results
+
 
 def get_downloadable_file(db: Session, file_id: int) -> FileResponse:
     file_record = db.get(GameFile, file_id)
