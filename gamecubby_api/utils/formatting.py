@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from ..models.mode import Mode
 from ..models.genre import Genre
 
+
 def format_igdb_game(game, db: Session):
     cover_url = None
     if game.get("cover") and game["cover"].get("url"):

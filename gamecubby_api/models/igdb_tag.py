@@ -9,6 +9,7 @@ game_igdb_tags = Table(
     Column("igdb_tag_id", Integer, ForeignKey("igdb_tags.id", ondelete="CASCADE"), primary_key=True),
 )
 
+
 class IGDBTag(Base):
     __tablename__ = "igdb_tags"
 

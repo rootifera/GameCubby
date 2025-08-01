@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String
 from ..models import Base
 
+
 class Collection(Base):
     __tablename__ = "collections"
 

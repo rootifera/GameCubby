@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String
 from sqlalchemy.orm import relationship
 from ..models import Base
 
+
 class Platform(Base):
     __tablename__ = "platforms"
 

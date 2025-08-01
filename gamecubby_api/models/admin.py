@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String
 from ..models import Base
 
+
 class AdminUser(Base):
     __tablename__ = "admin_users"
 

@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
 from passlib.context import CryptContext
+
 from ..db import get_db
 from ..schemas.admin import LoginRequest, PasswordChangeRequest
 from ..utils.auth import get_current_admin
@@ -21,7 +22,7 @@ def login(request: LoginRequest):
     try:
         user = db.query(AdminUser).filter_by(username=request.username).first()
         if not user or not pwd_context.verify(request.password, user.password_hash):
-            raise HTTPException(status_code=401, detail="Invalid credentials")
+            return error_response("Invalid credentials", 401)
 
         payload = {
             "sub": str(user.id),

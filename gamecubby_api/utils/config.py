@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 ENV_PATH = Path(__file__).parent.parent / ".env"
 
-#print("[debug] Writing to:", ENV_PATH.resolve())
+# print("[debug] Writing to:", ENV_PATH.resolve())
 
 load_dotenv(dotenv_path=ENV_PATH)
 
