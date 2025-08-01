@@ -3,6 +3,7 @@ from ..models.game_tag import game_tags
 from ..models.game import Game
 from ..models.tag import Tag
 
+
 def attach_tag(session: Session, game_id: int, tag_id: int):
     game = session.query(Game).filter_by(id=game_id).first()
     tag = session.query(Tag).filter_by(id=tag_id).first()
@@ -22,6 +23,7 @@ def attach_tag(session: Session, game_id: int, tag_id: int):
     session.commit()
     return True
 
+
 def detach_tag(session: Session, game_id: int, tag_id: int):
     session.execute(
         game_tags.delete().where(
@@ -31,6 +33,7 @@ def detach_tag(session: Session, game_id: int, tag_id: int):
     )
     session.commit()
     return True
+
 
 def list_tags_for_game(session: Session, game_id: int):
     from ..schemas.tag import Tag as TagSchema

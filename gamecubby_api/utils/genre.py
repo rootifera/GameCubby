@@ -4,6 +4,7 @@ from ..models.genre import Genre
 from ..utils.external import get_igdb_token
 import os
 
+
 async def sync_genres(db: Session):
     CLIENT_ID = os.getenv("CLIENT_ID")
     token = await get_igdb_token()

@@ -3,6 +3,7 @@ from ..models.game_platform import game_platforms
 from ..models.game import Game
 from ..models.platform import Platform
 
+
 def attach_platform(session: Session, game_id: int, platform_id: int):
     game = session.query(Game).filter_by(id=game_id).first()
     platform = session.query(Platform).filter_by(id=platform_id).first()
@@ -22,6 +23,7 @@ def attach_platform(session: Session, game_id: int, platform_id: int):
     session.commit()
     return True
 
+
 def detach_platform(session: Session, game_id: int, platform_id: int):
     session.execute(
         game_platforms.delete().where(
@@ -31,6 +33,7 @@ def detach_platform(session: Session, game_id: int, platform_id: int):
     )
     session.commit()
     return True
+
 
 def list_platforms_for_game(session: Session, game_id: int):
     from ..schemas.platform import Platform as PlatformSchema

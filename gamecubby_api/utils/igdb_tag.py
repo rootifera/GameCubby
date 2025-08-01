@@ -11,6 +11,7 @@ TAG_TYPE_ENDPOINTS = {
     2: "keywords",
 }
 
+
 async def upsert_igdb_tags(db: Session, tag_numbers: list[int]) -> list[IGDBTag]:
     if not tag_numbers:
         return []

@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from ..models.tag import Tag
 
+
 def upsert_tag(session: Session, tag_name: str):
     """
     Insert or fetch a tag by name (case-insensitive).
@@ -16,17 +17,20 @@ def upsert_tag(session: Session, tag_name: str):
         session.refresh(tag)
     return tag
 
+
 def get_tag(session: Session, tag_id: int):
     """
     Retrieve a tag by ID.
     """
     return session.query(Tag).filter_by(id=tag_id).first()
 
+
 def list_tags(session: Session):
     """
     Return all tags, sorted by name.
     """
     return session.query(Tag).order_by(Tag.name).all()
+
 
 def delete_tag(session: Session, tag_id: int):
     """

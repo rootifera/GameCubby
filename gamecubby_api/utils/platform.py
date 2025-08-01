@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
 from ..models.platform import Platform
 
+
 def upsert_platform(session: Session, platform_data: dict):
     """
     Insert or update a platform in the DB.
@@ -25,11 +26,14 @@ def upsert_platform(session: Session, platform_data: dict):
         session.commit()
     return platform
 
+
 def get_platform(session: Session, platform_id: int):
     return session.query(Platform).filter_by(id=platform_id).first()
 
+
 def list_platforms(session: Session):
     return session.query(Platform).order_by(Platform.name).all()
+
 
 def ensure_platforms_exist(session, platform_list):
     """

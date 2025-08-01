@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from ..models import Base
 
+
 class GameCompany(Base):
     __tablename__ = "game_companies"
 

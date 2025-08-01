@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, ForeignKey
 from sqlalchemy.orm import relationship
 from ..models import Base
 
+
 class Location(Base):
     __tablename__ = "locations"
 

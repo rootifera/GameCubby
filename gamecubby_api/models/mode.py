@@ -2,7 +2,6 @@ from sqlalchemy import Column, Integer, String
 from ..models import Base
 
 
-
 class Mode(Base):
     __tablename__ = "modes"
 
