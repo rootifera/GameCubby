@@ -1,6 +1,6 @@
 import os
-
 import httpx
+from typing import Optional
 from sqlalchemy.orm import Session
 
 from .external import get_igdb_token
@@ -9,6 +9,9 @@ from ..models.game import Game
 
 
 def upsert_mode(db: Session, mode_id: int, name: str) -> Mode:
+    """
+    Insert or update a game mode by ID and name.
+    """
     mode = db.query(Mode).filter_by(id=mode_id).first()
     if not mode:
         mode = Mode(id=mode_id, name=name)
@@ -21,11 +24,11 @@ def upsert_mode(db: Session, mode_id: int, name: str) -> Mode:
     return mode
 
 
-def list_modes(db: Session):
+def list_modes(db: Session) -> list[Mode]:
     return db.query(Mode).order_by(Mode.name).all()
 
 
-def assign_mode_to_game(db: Session, game_id: int, mode_id: int):
+def assign_mode_to_game(db: Session, game_id: int, mode_id: int) -> bool:
     game = db.query(Game).filter_by(id=game_id).first()
     mode = db.query(Mode).filter_by(id=mode_id).first()
     if not game or not mode:
@@ -36,7 +39,7 @@ def assign_mode_to_game(db: Session, game_id: int, mode_id: int):
     return True
 
 
-def remove_mode_from_game(db: Session, game_id: int, mode_id: int):
+def remove_mode_from_game(db: Session, game_id: int, mode_id: int) -> bool:
     game = db.query(Game).filter_by(id=game_id).first()
     mode = db.query(Mode).filter_by(id=mode_id).first()
     if not game or not mode:
@@ -47,9 +50,10 @@ def remove_mode_from_game(db: Session, game_id: int, mode_id: int):
     return True
 
 
-async def sync_modes_from_igdb(db):
+async def sync_modes_from_igdb(db: Session) -> int:
     """
     Fetch all game modes from IGDB and upsert into local DB.
+    Returns the number of modes synced.
     """
     CLIENT_ID = os.getenv("CLIENT_ID")
     token = await get_igdb_token()
@@ -70,8 +74,9 @@ async def sync_modes_from_igdb(db):
 
     for mode in modes:
         upsert_mode(db, mode["id"], mode["name"])
+
     return len(modes)
 
 
-def get_mode_by_id(db: Session, mode_id: int) -> Mode | None:
+def get_mode_by_id(db: Session, mode_id: int) -> Optional[Mode]:
     return db.query(Mode).filter(Mode.id == mode_id).first()

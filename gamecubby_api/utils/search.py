@@ -2,7 +2,7 @@ from fastapi import Request, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 from ..db import get_db
-from ..utils.db_tools import with_db  # ✅ NEW
+from ..utils.db_tools import with_db
 
 from ..models.game import Game
 from ..models.tag import Tag
@@ -115,7 +115,7 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
     if not filter_present:
         raise HTTPException(status_code=400, detail="No valid filters provided")
 
-    with with_db() as db:  # ✅ REPLACED get_db()
+    with with_db() as db:
         query = db.query(Game)
 
         if name := qp.get("name"):

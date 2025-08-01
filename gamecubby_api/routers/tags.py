@@ -4,7 +4,6 @@ from ..db import get_db
 from ..schemas.tag import Tag as TagSchema
 from ..utils.tag import upsert_tag, get_tag, list_tags, delete_tag
 from ..utils.auth import get_current_admin
-from ..utils.response import success_response, error_response
 
 router = APIRouter(prefix="/tags", tags=["Tags"])
 
@@ -31,5 +30,5 @@ def read_tag(tag_id: int, db: Session = Depends(get_db)):
 def remove_tag(tag_id: int, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
     deleted = delete_tag(db, tag_id)
     if not deleted:
-        return error_response("Tag not found", 404)
-    return success_response(message="Tag deleted successfully.")
+        raise HTTPException(status_code=404, detail="Tag not found")
+    return {"message": "Tag deleted successfully."}

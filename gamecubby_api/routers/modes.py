@@ -2,7 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..schemas.mode import Mode as ModeSchema
-from ..utils.mode import list_modes, assign_mode_to_game, remove_mode_from_game, sync_modes_from_igdb, get_mode_by_id
+from ..utils.mode import (
+    list_modes,
+    assign_mode_to_game,
+    remove_mode_from_game,
+    sync_modes_from_igdb,
+    get_mode_by_id,
+)
 from ..utils.auth import get_current_admin
 
 router = APIRouter(prefix="/modes", tags=["Modes"])

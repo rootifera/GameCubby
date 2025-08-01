@@ -4,20 +4,25 @@ from ..models.mode import Mode
 from ..models.genre import Genre
 
 
-def format_igdb_game(game, db: Session):
+def format_igdb_game(game: dict, db: Session) -> dict:
+    """
+    Format raw IGDB game data into a normalized structure.
+    Optionally queries the DB for mode/genre names if a session is provided.
+    """
     cover_url = None
     if game.get("cover") and game["cover"].get("url"):
         cover_url = "https:" + game["cover"]["url"].replace("t_thumb", "t_cover_big")
+
     release_year = None
     if game.get("first_release_date"):
         release_year = datetime.fromtimestamp(game["first_release_date"]).year
+
     platforms = [
         {"id": p["id"], "name": p["name"]}
         for p in game.get("platforms", [])
         if p.get("id") and p.get("name")
     ]
 
-    # Modes
     mode_ids = game.get("game_modes", [])
     if mode_ids and db:
         modes = db.query(Mode).filter(Mode.id.in_(mode_ids)).all()
@@ -25,7 +30,6 @@ def format_igdb_game(game, db: Session):
     else:
         game_modes = [{"id": m_id, "name": None} for m_id in mode_ids]
 
-    # Genres
     genre_ids = game.get("genres", [])
     if genre_ids and db:
         genres = db.query(Genre).filter(Genre.id.in_(genre_ids)).all()

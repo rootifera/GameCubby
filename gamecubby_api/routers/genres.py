@@ -1,5 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from typing import List
+
 from ..db import get_db
 from ..utils.genre import sync_genres
 from ..models.genre import Genre
@@ -17,7 +19,7 @@ async def sync_genres_endpoint(db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/", response_model=list[dict])
+@router.get("/", response_model=List[dict])
 def list_genres(db: Session = Depends(get_db)):
     genres = db.query(Genre).all()
     return [{"id": g.id, "name": g.name} for g in genres]

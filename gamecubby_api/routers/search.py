@@ -4,7 +4,6 @@ from ..utils.search import (
     search_games_advanced, search_company_suggestions, search_collection_suggestions,
     search_mode_suggestions, search_igdb_tag_suggestions
 )
-from ..utils.response import success_response
 
 router = APIRouter(prefix="/search", tags=["Search"])
 
@@ -69,7 +68,7 @@ router = APIRouter(prefix="/search", tags=["Search"])
 })
 async def basic_search(request: Request):
     results = search_games_basic(request)
-    return success_response(data={"results": results})
+    return {"results": results}
 
 
 @router.get("/advanced", openapi_extra={
@@ -101,7 +100,7 @@ async def basic_search(request: Request):
 })
 def advanced_search(request: Request):
     results = search_games_advanced(request)
-    return success_response(data={"results": results})
+    return {"results": results}
 
 
 @router.get("/suggest/names", openapi_extra={
@@ -117,7 +116,7 @@ def advanced_search(request: Request):
 })
 def suggest_game_names(request: Request):
     suggestions = search_game_name_suggestions(request)
-    return success_response(data={"suggestions": suggestions})
+    return {"suggestions": suggestions}
 
 
 @router.get("/suggest/tags", openapi_extra={
@@ -133,7 +132,7 @@ def suggest_game_names(request: Request):
 })
 def suggest_tags(request: Request):
     suggestions = search_tag_suggestions(request)
-    return success_response(data={"suggestions": suggestions})
+    return {"suggestions": suggestions}
 
 
 @router.get("/suggest/igdb_tags", openapi_extra={
@@ -149,7 +148,7 @@ def suggest_tags(request: Request):
 })
 def suggest_igdb_tags(request: Request):
     suggestions = search_igdb_tag_suggestions(request)
-    return success_response(data={"suggestions": suggestions})
+    return {"suggestions": suggestions}
 
 
 @router.get("/suggest/modes", openapi_extra={
@@ -165,7 +164,7 @@ def suggest_igdb_tags(request: Request):
 })
 def suggest_modes(request: Request):
     suggestions = search_mode_suggestions(request)
-    return success_response(data={"suggestions": suggestions})
+    return {"suggestions": suggestions}
 
 
 @router.get("/suggest/collections", openapi_extra={
@@ -181,7 +180,7 @@ def suggest_modes(request: Request):
 })
 def suggest_collections(request: Request):
     suggestions = search_collection_suggestions(request)
-    return success_response(data={"suggestions": suggestions})
+    return {"suggestions": suggestions}
 
 
 @router.get("/suggest/companies", openapi_extra={
@@ -197,4 +196,4 @@ def suggest_collections(request: Request):
 })
 def suggest_companies(request: Request):
     suggestions = search_company_suggestions(request)
-    return success_response(data={"suggestions": suggestions})
+    return {"suggestions": suggestions}

@@ -1,5 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
+from datetime import datetime, timedelta, timezone
+from typing import List
+
 from ..db import get_db
 from ..schemas.game import (
     Game as GameSchema,
@@ -32,7 +35,7 @@ from ..utils.auth import get_current_admin
 router = APIRouter(prefix="/games", tags=["Games"])
 
 
-@router.get("/", response_model=list[GameSchema])
+@router.get("/", response_model=List[GameSchema])
 def get_all_games(db: Session = Depends(get_db)):
     return list_games(db)
 
@@ -78,7 +81,7 @@ def remove_tag_from_game(game_id: int, tag_id: int, db: Session = Depends(get_db
     return True
 
 
-@router.get("/{game_id}/tags", response_model=list[TagSchema])
+@router.get("/{game_id}/tags", response_model=List[TagSchema])
 def get_tags_for_game(game_id: int, db: Session = Depends(get_db)):
     return list_tags_for_game(db, game_id)
 
@@ -97,7 +100,7 @@ def remove_platform_from_game(game_id: int, platform_id: int, db: Session = Depe
     return True
 
 
-@router.get("/{game_id}/platforms", response_model=list[PlatformSchema])
+@router.get("/{game_id}/platforms", response_model=List[PlatformSchema])
 def get_platforms_for_game(game_id: int, db: Session = Depends(get_db)):
     return list_platforms_for_game(db, game_id)
 
@@ -127,7 +130,7 @@ async def add_game_from_igdb_endpoint(req: AddGameFromIGDBRequest, db: Session =
 
 
 @router.get("/{game_id}/location_path", response_model=dict)
-async def get_game_location_path(game_id: int, db: Session = Depends(get_db)):
+def get_game_location_path(game_id: int, db: Session = Depends(get_db)):
     path = get_location_path(db, game_id)
     if not path:
         raise HTTPException(404, "Game has no location assigned")
@@ -136,8 +139,7 @@ async def get_game_location_path(game_id: int, db: Session = Depends(get_db)):
 
 @router.post("/", response_model=GameSchema, dependencies=[Depends(get_current_admin)])
 def add_game(game: GameCreate, db: Session = Depends(get_db)):
-    game_obj = create_game(db, game.dict())
-    return game_obj
+    return create_game(db, game.dict())
 
 
 @router.post("/{game_id}/refresh_metadata", dependencies=[Depends(get_current_admin)])
