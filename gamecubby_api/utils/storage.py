@@ -13,6 +13,7 @@ from ..models.storage import GameFile
 from fastapi.responses import FileResponse
 import logging
 from shutil import rmtree
+from ..utils.db_tools import with_db
 
 STORAGE_ROOT = Path("./storage")
 UPLOADS_DIR = STORAGE_ROOT / "uploads"
@@ -22,15 +23,15 @@ def ensure_game_folders(autocreate_all=False) -> None:
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
     if autocreate_all:
-        db = next(get_db())
-        try:
-            games = db.query(Game).all()
-            for game in games:
-                _create_single_game_folders(db, game)
-            logging.info(f"Ensured folders for {len(games)} games")
-        except Exception as e:
-            logging.error(f"Folder creation failed: {e}")
-            raise
+        with with_db() as db:
+            try:
+                games = db.query(Game).all()
+                for game in games:
+                    _create_single_game_folders(db, game)
+                logging.info(f"Ensured folders for {len(games)} games")
+            except Exception as e:
+                logging.error(f"Folder creation failed: {e}")
+                raise
 
 
 def _create_single_game_folders(db: Session, game: Game) -> str:

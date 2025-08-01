@@ -1,3 +1,4 @@
+from .db_tools import with_db
 from ..models.company import Company
 from ..models.game_company import GameCompany
 from sqlalchemy.orm import Session
@@ -56,8 +57,5 @@ async def sync_company_names(db: Session):
 
 
 async def sync_companies():
-    db = SessionLocal()
-    try:
+    with with_db() as db:
         await sync_company_names(db)
-    finally:
-        db.close()

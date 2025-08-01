@@ -2,6 +2,8 @@ from fastapi import Request, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 from ..db import get_db
+from ..utils.db_tools import with_db  # ✅ NEW
+
 from ..models.game import Game
 from ..models.tag import Tag
 from ..models.platform import Platform
@@ -17,7 +19,6 @@ from ..models.location import Location
 
 def search_games_basic(request: Request) -> list[GameSchema]:
     qp = request.query_params
-
     name = qp.get("name")
     year = qp.get("year")
     platform_id = qp.get("platform_id")
@@ -26,10 +27,7 @@ def search_games_basic(request: Request) -> list[GameSchema]:
     limit = qp.get("limit")
     offset = qp.get("offset")
 
-    db_gen = get_db()
-    db: Session = next(db_gen)
-
-    try:
+    with with_db() as db:
         query = db.query(Game)
 
         if name:
@@ -71,9 +69,6 @@ def search_games_basic(request: Request) -> list[GameSchema]:
 
         results = query.all()
         return [GameSchema.model_validate(g) for g in results]
-
-    finally:
-        db_gen.close()
 
 
 def search_games_advanced(request: Request) -> list[GameSchema]:
@@ -120,11 +115,7 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
     if not filter_present:
         raise HTTPException(status_code=400, detail="No valid filters provided")
 
-    db_gen = get_db()
-    db: Session = next(db_gen)
-
-    try:
-
+    with with_db() as db:  # ✅ REPLACED get_db()
         query = db.query(Game)
 
         if name := qp.get("name"):
@@ -197,19 +188,13 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
         results = query.all()
         return [GameSchema.model_validate(g) for g in results]
 
-    finally:
-        db_gen.close()
-
 
 def search_game_name_suggestions(request: Request) -> list[str]:
     query_text = request.query_params.get("q", "").strip()
     if len(query_text) < 2:
         raise HTTPException(status_code=400, detail="Query must be at least 2 characters")
 
-    db_gen = get_db()
-    db: Session = next(db_gen)
-
-    try:
+    with with_db() as db:
         results = (
             db.query(Game.name)
             .filter(Game.name.ilike(f"%{query_text}%"))
@@ -218,8 +203,6 @@ def search_game_name_suggestions(request: Request) -> list[str]:
             .all()
         )
         return [r[0] for r in results]
-    finally:
-        db_gen.close()
 
 
 def search_tag_suggestions(request: Request) -> list[str]:
@@ -227,10 +210,7 @@ def search_tag_suggestions(request: Request) -> list[str]:
     if len(query_text) < 2:
         raise HTTPException(status_code=400, detail="Query must be at least 2 characters")
 
-    db_gen = get_db()
-    db: Session = next(db_gen)
-
-    try:
+    with with_db() as db:
         results = (
             db.query(Tag.name)
             .filter(Tag.name.ilike(f"%{query_text}%"))
@@ -239,8 +219,6 @@ def search_tag_suggestions(request: Request) -> list[str]:
             .all()
         )
         return [r[0] for r in results]
-    finally:
-        db_gen.close()
 
 
 def search_igdb_tag_suggestions(request: Request) -> list[dict]:
@@ -248,9 +226,7 @@ def search_igdb_tag_suggestions(request: Request) -> list[dict]:
     if len(q) < 2:
         raise HTTPException(400, "Query must be at least 2 characters")
 
-    db_gen = get_db()
-    db = next(db_gen)
-    try:
+    with with_db() as db:
         results = (
             db.query(IGDBTag)
             .filter(IGDBTag.name.ilike(f"%{q}%"))
@@ -259,8 +235,6 @@ def search_igdb_tag_suggestions(request: Request) -> list[dict]:
             .all()
         )
         return [{"id": r.id, "name": r.name} for r in results]
-    finally:
-        db_gen.close()
 
 
 def search_genre_suggestions(request: Request) -> list[dict]:
@@ -268,9 +242,7 @@ def search_genre_suggestions(request: Request) -> list[dict]:
     if len(q) < 2:
         raise HTTPException(400, "Query must be at least 2 characters")
 
-    db_gen = get_db()
-    db = next(db_gen)
-    try:
+    with with_db() as db:
         results = (
             db.query(Genre)
             .filter(Genre.name.ilike(f"%{q}%"))
@@ -279,8 +251,6 @@ def search_genre_suggestions(request: Request) -> list[dict]:
             .all()
         )
         return [{"id": r.id, "name": r.name} for r in results]
-    finally:
-        db_gen.close()
 
 
 def search_mode_suggestions(request: Request) -> list[dict]:
@@ -288,9 +258,7 @@ def search_mode_suggestions(request: Request) -> list[dict]:
     if len(q) < 2:
         raise HTTPException(400, "Query must be at least 2 characters")
 
-    db_gen = get_db()
-    db = next(db_gen)
-    try:
+    with with_db() as db:
         results = (
             db.query(Mode)
             .filter(Mode.name.ilike(f"%{q}%"))
@@ -299,8 +267,6 @@ def search_mode_suggestions(request: Request) -> list[dict]:
             .all()
         )
         return [{"id": r.id, "name": r.name} for r in results]
-    finally:
-        db_gen.close()
 
 
 def search_collection_suggestions(request: Request) -> list[dict]:
@@ -308,9 +274,7 @@ def search_collection_suggestions(request: Request) -> list[dict]:
     if len(q) < 2:
         raise HTTPException(400, "Query must be at least 2 characters")
 
-    db_gen = get_db()
-    db = next(db_gen)
-    try:
+    with with_db() as db:
         results = (
             db.query(Collection)
             .filter(Collection.name.ilike(f"%{q}%"))
@@ -319,8 +283,6 @@ def search_collection_suggestions(request: Request) -> list[dict]:
             .all()
         )
         return [{"id": r.id, "name": r.name} for r in results]
-    finally:
-        db_gen.close()
 
 
 def search_company_suggestions(request: Request) -> list[dict]:
@@ -328,9 +290,7 @@ def search_company_suggestions(request: Request) -> list[dict]:
     if len(q) < 2:
         raise HTTPException(400, "Query must be at least 2 characters")
 
-    db_gen = get_db()
-    db = next(db_gen)
-    try:
+    with with_db() as db:
         results = (
             db.query(Company)
             .filter(Company.name.ilike(f"%{q}%"))
@@ -339,5 +299,3 @@ def search_company_suggestions(request: Request) -> list[dict]:
             .all()
         )
         return [{"id": r.id, "name": r.name} for r in results]
-    finally:
-        db_gen.close()
