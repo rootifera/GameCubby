@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 from ..models.genre import Genre
 from ..models.mode import Mode
 
+
 def format_igdb_cover_url(cover: dict | None) -> str | None:
     if cover and cover.get("url"):
         return "https:" + cover["url"].replace("t_thumb", "t_cover_big")

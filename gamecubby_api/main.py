@@ -3,6 +3,7 @@ import logging
 logging.getLogger("passlib.handlers.bcrypt").setLevel(logging.ERROR)
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from contextlib import asynccontextmanager
@@ -33,6 +34,7 @@ from .routers.search import router as search_router
 from .routers.auth import router as auth_router
 
 from .utils.db_tools import with_db
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -79,7 +81,7 @@ app.include_router(downloads_router)
 def read_root():
     return {
         "app_name": "GameCubby API",
-        "version": "0.2",
+        "version": "0.3",
         "build_name": "Griswold Goodsoup",
-        "build_time": 1753997897
+        "build_time": 1754172029
     }

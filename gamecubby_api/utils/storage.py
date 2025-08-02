@@ -48,13 +48,13 @@ def _create_single_game_folders(db: Session, game: Game) -> str:
 
 
 async def upload_and_register_file(
-    db: Session,
-    game: Game,
-    upload_file: UploadFile,
-    file_type: Literal["isos", "images", "files"],
-    label: str,
-    safe_filename: str,
-    **kwargs
+        db: Session,
+        game: Game,
+        upload_file: UploadFile,
+        file_type: Literal["isos", "images", "files"],
+        label: str,
+        safe_filename: str,
+        **kwargs
 ) -> GameFile:
     if not label.strip():
         raise HTTPException(400, "Label cannot be empty")
@@ -101,9 +101,9 @@ async def upload_and_register_file(
 
 
 async def delete_game_file(
-    db: Session,
-    file_id: int,
-    game_ref: str
+        db: Session,
+        file_id: int,
+        game_ref: str
 ) -> None:
     file_record = db.get(GameFile, file_id)
     if not file_record:
@@ -141,9 +141,9 @@ def sanitize_filename(filename: str) -> str:
 
 
 def sync_game_files(
-    db: Session,
-    game: Game,
-    file_types: List[str] = ["isos", "images", "files"]
+        db: Session,
+        game: Game,
+        file_types: List[str] = ["isos", "images", "files"]
 ) -> Tuple[int, int]:
     game_ref = get_game_ref(game)
 
