@@ -64,6 +64,8 @@ class GameCreate(BaseModel):
     genre_ids: Optional[List[int]] = []
     player_perspective_ids: Optional[List[int]] = []
     rating: Optional[int] = None
+    collection_id: Optional[int] = None
+    tag_ids: Optional[List[int]] = []
 
     class Config:
         from_attributes = True
@@ -82,6 +84,8 @@ class GameUpdate(BaseModel):
     genre_ids: Optional[List[int]] = None
     player_perspective_ids: Optional[List[int]] = None
     rating: Optional[int] = None
+    tag_ids: Optional[List[int]] = None
+    collection_id: Optional[int] = None
 
 
 class AddGameFromIGDBRequest(BaseModel):

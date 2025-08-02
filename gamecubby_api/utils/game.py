@@ -91,7 +91,6 @@ def list_games(session: Session) -> List[Game]:
 
 
 def create_game(session: Session, game_data: dict) -> Game:
-    # Fallback location_id before popping keys
     if game_data.get("location_id") in (None, 0):
         game_data["location_id"] = get_default_location_id(session)
 
@@ -99,34 +98,30 @@ def create_game(session: Session, game_data: dict) -> Game:
     platform_ids = game_data.pop("platform_ids", [])
     genre_ids = game_data.pop("genre_ids", [])
     perspective_ids = game_data.pop("player_perspective_ids", [])
-    game_data["igdb_id"] = 0
+    tag_ids = game_data.pop("tag_ids", [])
+    collection_id = game_data.pop("collection_id", None)
 
+    game_data["igdb_id"] = 0
     game = Game(**game_data)
+
+    if collection_id:
+        collection = session.query(Collection).filter_by(id=collection_id).first()
+        if collection:
+            game.collection = collection
+
     session.add(game)
 
     if mode_ids:
-        modes = session.query(Mode).filter(Mode.id.in_(mode_ids)).all()
-        for mode in modes:
-            if mode not in game.modes:
-                game.modes.append(mode)
-
+        game.modes = session.query(Mode).filter(Mode.id.in_(mode_ids)).all()
     if platform_ids:
-        platforms = session.query(Platform).filter(Platform.id.in_(platform_ids)).all()
-        for platform in platforms:
-            if platform not in game.platforms:
-                game.platforms.append(platform)
-
+        game.platforms = session.query(Platform).filter(Platform.id.in_(platform_ids)).all()
     if genre_ids:
-        genres = session.query(Genre).filter(Genre.id.in_(genre_ids)).all()
-        for genre in genres:
-            if genre not in game.genres:
-                game.genres.append(genre)
-
+        game.genres = session.query(Genre).filter(Genre.id.in_(genre_ids)).all()
     if perspective_ids:
-        perspectives = session.query(PlayerPerspective).filter(PlayerPerspective.id.in_(perspective_ids)).all()
-        for perspective in perspectives:
-            if perspective not in game.playerperspectives:
-                game.playerperspectives.append(perspective)
+        game.playerperspectives = session.query(PlayerPerspective).filter(
+            PlayerPerspective.id.in_(perspective_ids)).all()
+    if tag_ids:
+        game.tags = session.query(Tag).filter(Tag.id.in_(tag_ids)).all()
 
     session.commit()
     session.refresh(game)
@@ -145,34 +140,33 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
 
     update_data.pop("igdb_id", None)
 
-    if "location_id" in update_data:
-        loc_id = update_data["location_id"]
-        if loc_id in (None, 0):
-            update_data["location_id"] = get_default_location_id(session)
+    if "location_id" in update_data and update_data["location_id"] in (None, 0):
+        update_data["location_id"] = get_default_location_id(session)
 
     mode_ids = update_data.pop("mode_ids", None)
     if mode_ids is not None:
-        game.modes = []
-        modes = session.query(Mode).filter(Mode.id.in_(mode_ids)).all()
-        game.modes.extend(modes)
+        game.modes = session.query(Mode).filter(Mode.id.in_(mode_ids)).all()
 
     platform_ids = update_data.pop("platform_ids", None)
     if platform_ids is not None:
-        game.platforms = []
-        platforms = session.query(Platform).filter(Platform.id.in_(platform_ids)).all()
-        game.platforms.extend(platforms)
+        game.platforms = session.query(Platform).filter(Platform.id.in_(platform_ids)).all()
 
     genre_ids = update_data.pop("genre_ids", None)
     if genre_ids is not None:
-        game.genres = []
-        genres = session.query(Genre).filter(Genre.id.in_(genre_ids)).all()
-        game.genres.extend(genres)
+        game.genres = session.query(Genre).filter(Genre.id.in_(genre_ids)).all()
 
     perspective_ids = update_data.pop("player_perspective_ids", None)
     if perspective_ids is not None:
-        game.playerperspectives = []
-        perspectives = session.query(PlayerPerspective).filter(PlayerPerspective.id.in_(perspective_ids)).all()
-        game.playerperspectives.extend(perspectives)
+        game.playerperspectives = session.query(PlayerPerspective).filter(
+            PlayerPerspective.id.in_(perspective_ids)).all()
+
+    tag_ids = update_data.pop("tag_ids", None)
+    if tag_ids is not None:
+        game.tags = session.query(Tag).filter(Tag.id.in_(tag_ids)).all()
+
+    collection_id = update_data.pop("collection_id", None)
+    if collection_id is not None:
+        game.collection = session.query(Collection).filter_by(id=collection_id).first()
 
     for key, value in update_data.items():
         if value is not None:
