@@ -2,7 +2,9 @@ from sqlalchemy.orm import Session
 from .formatting import format_igdb_game
 from .location import get_location_path, get_default_location_id
 from .mode import upsert_mode
+from ..models import game_tags, game_platforms
 from ..models.location import Location
+from ..schemas.game import GamePreview, PlatformPreview
 from ..utils.external import fetch_igdb_game, fetch_igdb_collection
 from ..utils.platform import upsert_platform
 from ..utils.collection import create_collection
@@ -18,7 +20,7 @@ from ..models.playerperspective import PlayerPerspective
 from ..models.company import Company
 from ..models.game_company import GameCompany
 from ..utils.external import get_igdb_token
-from typing import List, Optional
+from typing import List, Optional, cast, Dict, Tuple
 import asyncio
 import os
 import httpx
@@ -88,13 +90,7 @@ def list_games(session: Session) -> List[Game]:
     return games
 
 
-def create_game(session: Session, game_data: dict):
-    from ..models.mode import Mode
-    from ..models.platform import Platform
-    from ..models.genre import Genre
-    from ..models.playerperspective import PlayerPerspective
-
-    # Fallback location_id before popping keys
+def create_game(session: Session, game_data: dict) -> Game:
     if game_data.get("location_id") in (None, 0):
         game_data["location_id"] = get_default_location_id(session)
 
@@ -102,34 +98,30 @@ def create_game(session: Session, game_data: dict):
     platform_ids = game_data.pop("platform_ids", [])
     genre_ids = game_data.pop("genre_ids", [])
     perspective_ids = game_data.pop("player_perspective_ids", [])
-    game_data['igdb_id'] = 0
+    tag_ids = game_data.pop("tag_ids", [])
+    collection_id = game_data.pop("collection_id", None)
 
+    game_data["igdb_id"] = 0
     game = Game(**game_data)
+
+    if collection_id:
+        collection = session.query(Collection).filter_by(id=collection_id).first()
+        if collection:
+            game.collection = collection
+
     session.add(game)
 
     if mode_ids:
-        modes = session.query(Mode).filter(Mode.id.in_(mode_ids)).all()
-        for mode in modes:
-            if mode not in game.modes:
-                game.modes.append(mode)
-
+        game.modes = session.query(Mode).filter(Mode.id.in_(mode_ids)).all()
     if platform_ids:
-        platforms = session.query(Platform).filter(Platform.id.in_(platform_ids)).all()
-        for platform in platforms:
-            if platform not in game.platforms:
-                game.platforms.append(platform)
-
+        game.platforms = session.query(Platform).filter(Platform.id.in_(platform_ids)).all()
     if genre_ids:
-        genres = session.query(Genre).filter(Genre.id.in_(genre_ids)).all()
-        for genre in genres:
-            if genre not in game.genres:
-                game.genres.append(genre)
-
+        game.genres = session.query(Genre).filter(Genre.id.in_(genre_ids)).all()
     if perspective_ids:
-        perspectives = session.query(PlayerPerspective).filter(PlayerPerspective.id.in_(perspective_ids)).all()
-        for p in perspectives:
-            if p not in game.playerperspectives:
-                game.playerperspectives.append(p)
+        game.playerperspectives = session.query(PlayerPerspective).filter(
+            PlayerPerspective.id.in_(perspective_ids)).all()
+    if tag_ids:
+        game.tags = session.query(Tag).filter(Tag.id.in_(tag_ids)).all()
 
     session.commit()
     session.refresh(game)
@@ -137,11 +129,6 @@ def create_game(session: Session, game_data: dict):
 
 
 def update_game(session: Session, game_id: int, update_data: dict) -> Optional[Game]:
-    from ..models.mode import Mode
-    from ..models.platform import Platform
-    from ..models.genre import Genre
-    from ..models.playerperspective import PlayerPerspective
-
     game = session.query(Game).filter_by(id=game_id).first()
     if not game:
         return None
@@ -151,41 +138,35 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
         if not all(k in allowed_fields for k in update_data.keys()):
             raise ValueError("Cannot update IGDB-sourced games except location/order")
 
-    update_data.pop('igdb_id', None)
+    update_data.pop("igdb_id", None)
 
-    # Handle location_id fallback
-    if "location_id" in update_data:
-        loc_id = update_data["location_id"]
-        if loc_id in (None, 0):
-            update_data["location_id"] = get_default_location_id(session)
+    if "location_id" in update_data and update_data["location_id"] in (None, 0):
+        update_data["location_id"] = get_default_location_id(session)
 
     mode_ids = update_data.pop("mode_ids", None)
     if mode_ids is not None:
-        game.modes = []
-        modes = session.query(Mode).filter(Mode.id.in_(mode_ids)).all()
-        for mode in modes:
-            game.modes.append(mode)
+        game.modes = session.query(Mode).filter(Mode.id.in_(mode_ids)).all()
 
     platform_ids = update_data.pop("platform_ids", None)
     if platform_ids is not None:
-        game.platforms = []
-        platforms = session.query(Platform).filter(Platform.id.in_(platform_ids)).all()
-        for platform in platforms:
-            game.platforms.append(platform)
+        game.platforms = session.query(Platform).filter(Platform.id.in_(platform_ids)).all()
 
     genre_ids = update_data.pop("genre_ids", None)
     if genre_ids is not None:
-        game.genres = []
-        genres = session.query(Genre).filter(Genre.id.in_(genre_ids)).all()
-        for genre in genres:
-            game.genres.append(genre)
+        game.genres = session.query(Genre).filter(Genre.id.in_(genre_ids)).all()
 
     perspective_ids = update_data.pop("player_perspective_ids", None)
     if perspective_ids is not None:
-        game.playerperspectives = []
-        perspectives = session.query(PlayerPerspective).filter(PlayerPerspective.id.in_(perspective_ids)).all()
-        for p in perspectives:
-            game.playerperspectives.append(p)
+        game.playerperspectives = session.query(PlayerPerspective).filter(
+            PlayerPerspective.id.in_(perspective_ids)).all()
+
+    tag_ids = update_data.pop("tag_ids", None)
+    if tag_ids is not None:
+        game.tags = session.query(Tag).filter(Tag.id.in_(tag_ids)).all()
+
+    collection_id = update_data.pop("collection_id", None)
+    if collection_id is not None:
+        game.collection = session.query(Collection).filter_by(id=collection_id).first()
 
     for key, value in update_data.items():
         if value is not None:
@@ -195,8 +176,10 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
     return game
 
 
-def delete_game(session: Session, game_id: int):
-    from ..models.game import Game
+def delete_game(session: Session, game_id: int) -> bool:
+    """
+    Delete a game by its ID. Returns True if deleted, False if not found.
+    """
     game = session.query(Game).filter_by(id=game_id).first()
     if not game:
         return False
@@ -205,9 +188,10 @@ def delete_game(session: Session, game_id: int):
     return True
 
 
-def list_games_by_tag(session: Session, tag_id: int):
-    from ..models.game import Game
-    from ..models.game_tag import game_tags
+def list_games_by_tag(session: Session, tag_id: int) -> List[Game]:
+    """
+    Return all games associated with a given tag ID.
+    """
     return (
         session.query(Game)
         .join(game_tags, Game.id == game_tags.c.game_id)
@@ -217,9 +201,10 @@ def list_games_by_tag(session: Session, tag_id: int):
     )
 
 
-def list_games_by_platform(session: Session, platform_id: int):
-    from ..models.game import Game
-    from ..models.game_platform import game_platforms
+def list_games_by_platform(session: Session, platform_id: int) -> List[Game]:
+    """
+    Return all games associated with a given platform ID.
+    """
     return (
         session.query(Game)
         .join(game_platforms, Game.id == game_platforms.c.game_id)
@@ -229,34 +214,44 @@ def list_games_by_platform(session: Session, platform_id: int):
     )
 
 
-def list_games_by_location(session: Session, location_id: int):
-    from ..models.game import Game
-    return (
+def list_games_by_location(session: Session, location_id: int) -> List[Game]:
+    """
+    Return all games stored at the specified location.
+    """
+    games = (
         session.query(Game)
         .filter(Game.location_id == location_id)
         .order_by(Game.name)
         .all()
     )
+    return cast(List[Game], games)
 
 
-def upsert_collection(session, collection_obj):
+def upsert_collection(session: Session, collection_obj: Dict) -> Collection:
+    """
+    Finds an existing collection by IGDB ID or name, or creates a new one.
+    """
     existing = session.query(Collection).filter_by(igdb_id=collection_obj["id"]).first()
     if not existing:
         existing = session.query(Collection).filter_by(name=collection_obj["name"]).first()
     if existing:
         return existing
-    return create_collection(session, {"igdb_id": collection_obj["id"], "name": collection_obj["name"]})
+
+    return create_collection(session, {
+        "igdb_id": collection_obj["id"],
+        "name": collection_obj["name"]
+    })
 
 
 async def add_game_from_igdb(
-        session,
+        session: Session,
         igdb_id: int,
         platform_ids: list[int],
-        location_id: int | None = None,
+        location_id: Optional[int] = None,
         tag_ids: list[int] = [],
-        condition: int | None = None,
-        order: int | None = None
-):
+        condition: Optional[int] = None,
+        order: Optional[int] = None
+) -> Optional[Game]:
     raw = await fetch_igdb_game(igdb_id)
     if not raw:
         return None
@@ -266,12 +261,7 @@ async def add_game_from_igdb(
     summary = game_data["summary"]
     release_date = game_data["release_date"]
     cover_url = game_data["cover_url"]
-    rating = None
-    if "rating" in raw and raw["rating"] is not None:
-        try:
-            rating = int(raw["rating"])
-        except Exception:
-            rating = None
+    rating = int(raw["rating"]) if raw.get("rating") else None
     updated_at = raw.get("updated_at")
 
     igdb_tag_ids = raw.get("tags", [])
@@ -292,7 +282,7 @@ async def add_game_from_igdb(
             resp = await client.post(
                 "https://api.igdb.com/v4/involved_companies",
                 headers=headers,
-                data=f"fields company,developer,publisher,porting,supporting; where id = ({','.join(str(i) for i in involved_company_ids)});"
+                data=f"fields company,developer,publisher,porting,supporting; where id = ({','.join(map(str, involved_company_ids))});"
             )
             resp.raise_for_status()
             involved_company_data = resp.json()
@@ -303,19 +293,19 @@ async def add_game_from_igdb(
                 resp = await client.post(
                     "https://api.igdb.com/v4/companies",
                     headers=headers,
-                    data=f"fields id,name; where id = ({','.join(str(i) for i in company_ids)});"
+                    data=f"fields id,name; where id = ({','.join(map(str, company_ids))});"
                 )
                 resp.raise_for_status()
                 for c in resp.json():
                     company_name_map[c["id"]] = c["name"]
 
-    collection_list = await fetch_igdb_collection(igdb_id)
     collection_id = None
+    collection_list = await fetch_igdb_collection(igdb_id)
     if collection_list:
-        collection_data = collection_list[0]
-        collection = session.query(Collection).filter_by(igdb_id=collection_data["id"]).first()
+        data = collection_list[0]
+        collection = session.query(Collection).filter_by(igdb_id=data["id"]).first()
         if not collection:
-            collection = Collection(igdb_id=collection_data["id"], name=collection_data["name"])
+            collection = Collection(igdb_id=data["id"], name=data["name"])
             session.add(collection)
             session.commit()
             session.refresh(collection)
@@ -338,24 +328,20 @@ async def add_game_from_igdb(
     )
     session.add(game)
 
-    mode_items = game_data.get("game_modes", [])
-    if mode_items:
-        for mode_item in mode_items:
-            mode_id = mode_item["id"] if isinstance(mode_item, dict) else mode_item
-            mode_name = mode_item.get("name") if isinstance(mode_item, dict) else ""
-            mode = session.query(Mode).filter_by(id=mode_id).first()
-            if not mode:
-                mode = upsert_mode(session, mode_id, mode_name or "")
-            if mode and mode not in game.modes:
-                game.modes.append(mode)
+    for mode_item in game_data.get("game_modes", []):
+        mode_id = mode_item["id"] if isinstance(mode_item, dict) else mode_item
+        mode_name = mode_item.get("name") if isinstance(mode_item, dict) else ""
+        mode = session.query(Mode).filter_by(id=mode_id).first()
+        if not mode:
+            mode = upsert_mode(session, mode_id, mode_name or "")
+        if mode and mode not in game.modes:
+            game.modes.append(mode)
 
-    genre_items = game_data.get("genres", [])
-    if genre_items:
-        for genre_item in genre_items:
-            genre_id = genre_item["id"] if isinstance(genre_item, dict) else genre_item
-            genre = session.query(Genre).filter_by(id=genre_id).first()
-            if genre and genre not in game.genres:
-                game.genres.append(genre)
+    for genre_item in game_data.get("genres", []):
+        genre_id = genre_item["id"] if isinstance(genre_item, dict) else genre_item
+        genre = session.query(Genre).filter_by(id=genre_id).first()
+        if genre and genre not in game.genres:
+            game.genres.append(genre)
 
     igdb_platforms = {p["id"]: p for p in game_data.get("platforms", [])}
     for platform_id in platform_ids:
@@ -370,12 +356,10 @@ async def add_game_from_igdb(
         if tag and tag not in game.tags:
             game.tags.append(tag)
 
-    perspective_ids = raw.get("player_perspectives", [])
-    if perspective_ids:
-        perspectives = session.query(PlayerPerspective).filter(PlayerPerspective.id.in_(perspective_ids)).all()
-        for p in perspectives:
-            if p not in game.playerperspectives:
-                game.playerperspectives.append(p)
+    for p_id in raw.get("player_perspectives", []):
+        perspective = session.query(PlayerPerspective).filter_by(id=p_id).first()
+        if perspective and perspective not in game.playerperspectives:
+            game.playerperspectives.append(perspective)
 
     for tag in tags:
         if tag not in game.igdb_tags:
@@ -405,7 +389,7 @@ async def add_game_from_igdb(
     return game
 
 
-async def refresh_game_metadata(session: Session, game_id: int) -> (Game, bool, str):
+async def refresh_game_metadata(session: Session, game_id: int) -> Tuple[Optional[Game], bool, str]:
     """
     Refresh a game's metadata from IGDB if IGDB's updated_at is newer.
     Returns: (game, was_updated (bool), message)
@@ -434,20 +418,19 @@ async def refresh_game_metadata(session: Session, game_id: int) -> (Game, bool, 
     game.summary = game_data["summary"]
     game.release_date = game_data["release_date"]
     game.cover_url = game_data["cover_url"]
-    game.rating = int(raw["rating"]) if "rating" in raw and raw["rating"] is not None else None
+    game.rating = int(raw["rating"]) if raw.get("rating") is not None else None
     game.updated_at = igdb_updated_at
 
     genre_ids = [g["id"] for g in game_data.get("genres", [])]
     if genre_ids:
-        from ..models.genre import Genre
         game.genres = session.query(Genre).filter(Genre.id.in_(genre_ids)).all()
+
     mode_ids = [m["id"] for m in game_data.get("game_modes", [])]
     if mode_ids:
-        from ..models.mode import Mode
         game.modes = session.query(Mode).filter(Mode.id.in_(mode_ids)).all()
+
     platform_ids = [p["id"] for p in game_data.get("platforms", [])]
     if platform_ids:
-        from ..models.platform import Platform
         game.platforms = session.query(Platform).filter(Platform.id.in_(platform_ids)).all()
 
     session.commit()
@@ -455,39 +438,65 @@ async def refresh_game_metadata(session: Session, game_id: int) -> (Game, bool, 
     return game, True, "Game metadata updated from IGDB."
 
 
-def refresh_all_games_metadata(session: Session):
+def refresh_all_games_metadata(session: Session) -> Dict[str, int]:
     """
     Refresh metadata for all IGDB-backed games.
     Returns summary: {updated: int, skipped: int, errors: int}
     """
-
     updated, skipped, errors = 0, 0, 0
     games = session.query(Game).filter(Game.igdb_id.isnot(None), Game.igdb_id > 0).all()
+
     for game in games:
         try:
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            refreshed, did_update, msg = loop.run_until_complete(refresh_game_metadata(session, game.id))
+            _, did_update, msg = loop.run_until_complete(refresh_game_metadata(session, game.id))
             loop.close()
+
             if did_update:
                 updated += 1
             elif "up to date" in msg:
                 skipped += 1
             else:
                 errors += 1
+
         except Exception as e:
             print(f"Error refreshing game {game.id}: {e}")
             errors += 1
+
     print(f"Batch refresh: updated={updated}, skipped={skipped}, errors={errors}")
     return {"updated": updated, "skipped": skipped, "errors": errors}
 
 
-def force_refresh_metadata(session: Session):
+def force_refresh_metadata(session: Session) -> Dict[str, int]:
     """
     Sets updated_at = 0 for all IGDB games, then calls batch refresh.
     """
-    from ..models.game import Game
     session.query(Game).filter(Game.igdb_id.isnot(None), Game.igdb_id > 0).update({Game.updated_at: 0})
     session.commit()
     print("Force refresh: all updated_at set to 0.")
     return refresh_all_games_metadata(session)
+
+
+def list_games_preview(db: Session) -> list[GamePreview]:
+    games = db.query(Game).all()
+    result = []
+
+    for game in games:
+        preview = GamePreview(
+            id=game.id,
+            name=game.name,
+            cover_url=game.cover_url,
+            release_date=game.release_date,
+            summary=game.summary,
+            platforms=[
+                PlatformPreview(
+                    id=platform.id,
+                    name=platform.name
+                )
+                for platform in game.platforms
+            ]
+        )
+        result.append(preview)
+
+    return result

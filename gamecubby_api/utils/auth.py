@@ -11,7 +11,7 @@ security = HTTPBearer()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
-def ensure_default_admin(db: Session):
+def ensure_default_admin(db: Session) -> None:
     existing = db.query(AdminUser).filter_by(username="admin").first()
     if not existing:
         print("[Auth] No admin user found. Creating default admin: admin / admin")
@@ -22,8 +22,8 @@ def ensure_default_admin(db: Session):
 
 
 def get_current_admin(
-        credentials: HTTPAuthorizationCredentials = Depends(security),
-        db: Session = Depends(get_db)
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db)
 ) -> AdminUser:
     token = credentials.credentials
     payload = decode_access_token(token)

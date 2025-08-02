@@ -3,14 +3,12 @@ import logging
 logging.getLogger("passlib.handlers.bcrypt").setLevel(logging.ERROR)
 
 from dotenv import load_dotenv
-
 load_dotenv()
 
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 from fastapi import FastAPI
 
-from .db import get_db
 from .utils.auth import ensure_default_admin
 from .utils.playerperspective import sync_player_perspectives
 from .utils.mode import sync_modes_from_igdb
@@ -34,30 +32,26 @@ from .routers.company import router as company_router
 from .routers.search import router as search_router
 from .routers.auth import router as auth_router
 
-import os
-
-
-# print("[DEBUG] SECRET_KEY =", os.getenv("SECRET_KEY"))
-
+from .utils.db_tools import with_db
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ensure_game_folders(autocreate_all=True)
 
-    db = next(get_db())
-    try:
-        ensure_default_admin(db)
+    with with_db() as db:  # ✅ CHANGED
+        try:
+            ensure_default_admin(db)
 
-        if not list_all_locations(db):
-            print("[Startup] No locations found. Creating 'Default Storage' root.")
-            create_location(db, name="Default Storage", parent_id=None, type="root")
+            if not list_all_locations(db):
+                print("[Startup] No locations found. Creating 'Default Storage' root.")
+                create_location(db, name="Default Storage", parent_id=None, type="root")
 
-        await sync_player_perspectives(db)
-        await sync_modes_from_igdb(db)
-        await sync_genres(db)
+            await sync_player_perspectives(db)
+            await sync_modes_from_igdb(db)
+            await sync_genres(db)
 
-    except Exception as e:
-        print(f"[Startup Sync Warning] Failed: {e}")
+        except Exception as e:
+            print(f"[Startup Sync Warning] Failed: {e}")
 
     yield
 

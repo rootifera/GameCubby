@@ -1,11 +1,10 @@
+from .db_tools import with_db
 from ..models.company import Company
-from ..models.game_company import GameCompany
 from sqlalchemy.orm import Session
 import asyncio
 import os
 import httpx
 from .external import get_igdb_token
-from ..db import SessionLocal
 
 
 def upsert_companies(db: Session, company_data: list[dict]) -> list[Company]:
@@ -23,7 +22,7 @@ def upsert_companies(db: Session, company_data: list[dict]) -> list[Company]:
     return companies
 
 
-async def sync_company_names(db: Session):
+async def sync_company_names(db: Session) -> int:
     CLIENT_ID = os.getenv("CLIENT_ID")
     token = await get_igdb_token()
     headers = {
@@ -46,6 +45,8 @@ async def sync_company_names(db: Session):
                     if company.name != name:
                         company.name = name
                         updated += 1
+                else:
+                    print(f"No data found for company ID {company.id}")
         except Exception as e:
             print(f"Failed to sync company ID {company.id}: {e}")
 
@@ -53,11 +54,9 @@ async def sync_company_names(db: Session):
 
     db.commit()
     print(f"Updated {updated} company names.")
+    return updated
 
 
 async def sync_companies():
-    db = SessionLocal()
-    try:
+    with with_db() as db:
         await sync_company_names(db)
-    finally:
-        db.close()

@@ -1,8 +1,8 @@
-"""Add config table
+"""fresh
 
-Revision ID: 5e5212849a52
+Revision ID: 846d01ae7d62
 Revises: 
-Create Date: 2025-07-31 15:32:38.969777
+Create Date: 2025-08-01 14:29:55.910434
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '5e5212849a52'
+revision: str = '846d01ae7d62'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -119,50 +119,50 @@ def upgrade() -> None:
     sa.Column('publisher', sa.Boolean(), nullable=True),
     sa.Column('porting', sa.Boolean(), nullable=True),
     sa.Column('supporting', sa.Boolean(), nullable=True),
-    sa.ForeignKeyConstraint(['company_id'], ['companies.id'], ),
-    sa.ForeignKeyConstraint(['game_id'], ['games.id'], ),
+    sa.ForeignKeyConstraint(['company_id'], ['companies.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['game_id'], ['games.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('game_id', 'company_id')
     )
     op.create_table('game_genres',
     sa.Column('game_id', sa.Integer(), nullable=False),
     sa.Column('genre_id', sa.Integer(), nullable=False),
-    sa.ForeignKeyConstraint(['game_id'], ['games.id'], ),
-    sa.ForeignKeyConstraint(['genre_id'], ['genres.id'], ),
+    sa.ForeignKeyConstraint(['game_id'], ['games.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['genre_id'], ['genres.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('game_id', 'genre_id')
     )
     op.create_table('game_igdb_tags',
     sa.Column('game_id', sa.Integer(), nullable=False),
     sa.Column('igdb_tag_id', sa.Integer(), nullable=False),
-    sa.ForeignKeyConstraint(['game_id'], ['games.id'], ),
-    sa.ForeignKeyConstraint(['igdb_tag_id'], ['igdb_tags.id'], ),
+    sa.ForeignKeyConstraint(['game_id'], ['games.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['igdb_tag_id'], ['igdb_tags.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('game_id', 'igdb_tag_id')
     )
     op.create_table('game_modes',
     sa.Column('game_id', sa.Integer(), nullable=False),
     sa.Column('mode_id', sa.Integer(), nullable=False),
-    sa.ForeignKeyConstraint(['game_id'], ['games.id'], ),
-    sa.ForeignKeyConstraint(['mode_id'], ['modes.id'], ),
+    sa.ForeignKeyConstraint(['game_id'], ['games.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['mode_id'], ['modes.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('game_id', 'mode_id')
     )
     op.create_table('game_platforms',
     sa.Column('game_id', sa.Integer(), nullable=False),
     sa.Column('platform_id', sa.Integer(), nullable=False),
-    sa.ForeignKeyConstraint(['game_id'], ['games.id'], ),
-    sa.ForeignKeyConstraint(['platform_id'], ['platforms.id'], ),
+    sa.ForeignKeyConstraint(['game_id'], ['games.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['platform_id'], ['platforms.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('game_id', 'platform_id')
     )
     op.create_table('game_playerperspectives',
     sa.Column('game_id', sa.Integer(), nullable=False),
     sa.Column('perspective_id', sa.Integer(), nullable=False),
-    sa.ForeignKeyConstraint(['game_id'], ['games.id'], ),
-    sa.ForeignKeyConstraint(['perspective_id'], ['playerperspectives.id'], ),
+    sa.ForeignKeyConstraint(['game_id'], ['games.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['perspective_id'], ['playerperspectives.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('game_id', 'perspective_id')
     )
     op.create_table('game_tags',
     sa.Column('game_id', sa.Integer(), nullable=False),
     sa.Column('tag_id', sa.Integer(), nullable=False),
-    sa.ForeignKeyConstraint(['game_id'], ['games.id'], ),
-    sa.ForeignKeyConstraint(['tag_id'], ['tags.id'], ),
+    sa.ForeignKeyConstraint(['game_id'], ['games.id'], ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['tag_id'], ['tags.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('game_id', 'tag_id')
     )
     # ### end Alembic commands ###

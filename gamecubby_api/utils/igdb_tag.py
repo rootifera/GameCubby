@@ -1,6 +1,5 @@
 import os
 import httpx
-from collections import defaultdict
 from sqlalchemy.orm import Session
 from ..models.igdb_tag import IGDBTag
 from ..utils.external import get_igdb_token
@@ -16,7 +15,6 @@ async def upsert_igdb_tags(db: Session, tag_numbers: list[int]) -> list[IGDBTag]
     if not tag_numbers:
         return []
 
-    # Split into type -> [object_id]
     tag_groups = defaultdict(set)
     for tag in tag_numbers:
         tag_type = tag >> 28
@@ -56,4 +54,5 @@ async def upsert_igdb_tags(db: Session, tag_numbers: list[int]) -> list[IGDBTag]
             existing_map[tag_number] = tag
             new_tags.append(tag)
 
+    db.commit()
     return [existing_map[tag] for tag in tag_numbers if tag in existing_map]

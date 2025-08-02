@@ -1,36 +1,40 @@
 import re
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Literal
+import logging
 import sqlalchemy.exc
 from sqlalchemy.orm import Session
-from ..models.game import Game
-from ..db import get_db
-import logging
 from fastapi import UploadFile, HTTPException
-import aiofiles
-from typing import Literal
-from ..models.storage import GameFile
 from fastapi.responses import FileResponse
-import logging
 from shutil import rmtree
+import aiofiles
+
+from ..models.game import Game
+from ..models.storage import GameFile
+from ..db import get_db
+from ..utils.db_tools import with_db
 
 STORAGE_ROOT = Path("./storage")
 UPLOADS_DIR = STORAGE_ROOT / "uploads"
 
 
-def ensure_game_folders(autocreate_all=False) -> None:
+def get_game_ref(game: Game) -> str:
+    return str(game.igdb_id) if game.igdb_id else "".join(c for c in game.name.lower() if c.isalnum())
+
+
+def ensure_game_folders(autocreate_all: bool = False) -> None:
     UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
     if autocreate_all:
-        db = next(get_db())
-        try:
-            games = db.query(Game).all()
-            for game in games:
-                _create_single_game_folders(db, game)
-            logging.info(f"Ensured folders for {len(games)} games")
-        except Exception as e:
-            logging.error(f"Folder creation failed: {e}")
-            raise
+        with with_db() as db:
+            try:
+                games = db.query(Game).all()
+                for game in games:
+                    _create_single_game_folders(db, game)
+                logging.info(f"Ensured folders for {len(games)} games")
+            except Exception as e:
+                logging.error(f"Folder creation failed: {e}")
+                raise
 
 
 def _create_single_game_folders(db: Session, game: Game) -> str:
@@ -44,30 +48,27 @@ def _create_single_game_folders(db: Session, game: Game) -> str:
 
 
 async def upload_and_register_file(
-        db: Session,
-        game: Game,
-        upload_file: UploadFile,
-        file_type: Literal["isos", "images", "files"],
-        label: str,
-        safe_filename: str,
-        **kwargs
+    db: Session,
+    game: Game,
+    upload_file: UploadFile,
+    file_type: Literal["isos", "images", "files"],
+    label: str,
+    safe_filename: str,
+    **kwargs
 ) -> GameFile:
     if not label.strip():
-        raise ValueError("Label cannot be empty")
+        raise HTTPException(400, "Label cannot be empty")
     if file_type not in {"isos", "images", "files"}:
-        raise ValueError(f"Invalid file type: {file_type}")
+        raise HTTPException(400, f"Invalid file type: {file_type}")
 
-    game_ref = str(game.igdb_id) if game.igdb_id else \
-        "".join(c for c in game.name.lower() if c.isalnum())
+    game_ref = get_game_ref(game)
 
-    dest_path = Path("storage/uploads") / \
-                ("igdb" if game.igdb_id else "local") / \
-                game_ref / file_type / safe_filename
+    dest_path = UPLOADS_DIR / ("igdb" if game.igdb_id else "local") / game_ref / file_type / safe_filename
 
     if dest_path.exists():
         existing_file = db.query(GameFile).filter(GameFile.path == str(dest_path)).first()
         if existing_file:
-            raise ValueError(f"File already exists at this path (ID: {existing_file.id})")
+            raise HTTPException(409, f"File already exists at this path (ID: {existing_file.id})")
 
     try:
         dest_path.parent.mkdir(parents=True, exist_ok=True)
@@ -86,30 +87,30 @@ async def upload_and_register_file(
         return file_record
 
     except sqlalchemy.exc.IntegrityError as e:
+        db.rollback()
         if "UNIQUE constraint failed: files.path" in str(e):
-            db.rollback()
             existing = db.query(GameFile).filter(GameFile.path == str(dest_path)).first()
-            raise ValueError(f"File already registered (ID: {existing.id})") from e
-        raise
+            raise HTTPException(409, f"File already registered (ID: {existing.id})") from e
+        raise HTTPException(500, "Database integrity error") from e
 
-    except Exception:
+    except Exception as e:
+        db.rollback()
         if dest_path.exists():
             dest_path.unlink(missing_ok=True)
-        db.rollback()
-        raise
+        raise HTTPException(500, f"File upload failed: {str(e)}") from e
 
 
 async def delete_game_file(
-        db: Session,
-        file_id: int,
-        game_ref: str
+    db: Session,
+    file_id: int,
+    game_ref: str
 ) -> None:
     file_record = db.get(GameFile, file_id)
     if not file_record:
-        raise ValueError("File not found")
+        raise HTTPException(404, "File not found")
 
     if file_record.game != game_ref:
-        raise ValueError("File does not belong to specified game")
+        raise HTTPException(400, "File does not belong to specified game")
 
     file_path = Path(file_record.path)
 
@@ -122,12 +123,11 @@ async def delete_game_file(
 
     except Exception as e:
         db.rollback()
-        raise RuntimeError(f"Deletion failed: {str(e)}") from e
+        raise HTTPException(500, f"Deletion failed: {str(e)}") from e
 
 
 def sanitize_filename(filename: str) -> str:
     clean_name = Path(filename).name
-
     stem, suffix = Path(clean_name).stem, Path(clean_name).suffix
 
     if stem:
@@ -141,16 +141,13 @@ def sanitize_filename(filename: str) -> str:
 
 
 def sync_game_files(
-        db: Session,
-        game: Game,
-        file_types: List[str] = ["isos", "images", "files"]
+    db: Session,
+    game: Game,
+    file_types: List[str] = ["isos", "images", "files"]
 ) -> Tuple[int, int]:
-    game_ref = str(game.igdb_id) if game.igdb_id else \
-        "".join(c for c in game.name.lower() if c.isalnum())
+    game_ref = get_game_ref(game)
 
-    base_path = Path("storage/uploads") / \
-                ("igdb" if game.igdb_id else "local") / \
-                game_ref
+    base_path = UPLOADS_DIR / ("igdb" if game.igdb_id else "local") / game_ref
 
     added = 0
     skipped = 0
@@ -162,9 +159,7 @@ def sync_game_files(
 
         for file_path in type_path.iterdir():
             if file_path.is_file():
-                existing = db.query(GameFile).filter(
-                    GameFile.path == str(file_path)
-                ).first()
+                existing = db.query(GameFile).filter(GameFile.path == str(file_path)).first()
 
                 if not existing:
                     db.add(GameFile(
@@ -187,7 +182,7 @@ def sync_all_files(db: Session) -> dict:
         "game_results": {}
     }
 
-    storage_root = Path("storage/uploads")
+    storage_root = UPLOADS_DIR
     logging.debug(f"Starting sync_all_files in {storage_root.resolve()}")
 
     for platform in ["igdb", "local"]:
@@ -204,14 +199,11 @@ def sync_all_files(db: Session) -> dict:
                 for file_type in ["isos", "images", "files"]:
                     type_path = game_ref / file_type
                     if not type_path.exists():
-                        logging.debug(f"File type folder {type_path} missing, skipping.")
                         continue
 
                     for file_path in type_path.iterdir():
                         if file_path.is_file():
-                            existing = db.query(GameFile).filter(
-                                GameFile.path == str(file_path)
-                            ).first()
+                            existing = db.query(GameFile).filter(GameFile.path == str(file_path)).first()
 
                             if not existing:
                                 db.add(GameFile(
@@ -223,7 +215,6 @@ def sync_all_files(db: Session) -> dict:
                                 logging.info(f"Added new file record for {file_path}")
                             else:
                                 game_results["skipped"] += 1
-                                logging.debug(f"Skipped existing file record {file_path}")
 
                 results["total_added"] += game_results["added"]
                 results["total_skipped"] += game_results["skipped"]
@@ -250,16 +241,15 @@ def sync_all_files(db: Session) -> dict:
             continue
 
         for game_ref in platform_path.iterdir():
-            if game_ref.is_dir():
-                if game_ref.name not in db_game_refs:
-                    logging.info(f"Deleting orphaned folder {game_ref}")
-                    rmtree(game_ref)
+            if game_ref.is_dir() and game_ref.name not in db_game_refs:
+                logging.info(f"Deleting orphaned folder {game_ref}")
+                rmtree(game_ref)
 
-                    orphan_files = db.query(GameFile).filter(GameFile.game == game_ref.name).all()
-                    for f in orphan_files:
-                        db.delete(f)
-                    db.commit()
-                    logging.info(f"Deleted {len(orphan_files)} orphaned file records from DB.")
+                orphan_files = db.query(GameFile).filter(GameFile.game == game_ref.name).all()
+                for f in orphan_files:
+                    db.delete(f)
+                db.commit()
+                logging.info(f"Deleted {len(orphan_files)} orphaned file records from DB.")
 
     return results
 

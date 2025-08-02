@@ -8,7 +8,6 @@ from ..schemas.admin import LoginRequest, PasswordChangeRequest
 from ..utils.auth import get_current_admin
 from ..models.admin import AdminUser
 from ..utils.jwt import create_access_token
-from ..utils.response import success_response, error_response
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -22,7 +21,7 @@ def login(request: LoginRequest):
     try:
         user = db.query(AdminUser).filter_by(username=request.username).first()
         if not user or not pwd_context.verify(request.password, user.password_hash):
-            return error_response("Invalid credentials", 401)
+            raise HTTPException(status_code=401, detail="Invalid credentials")
 
         payload = {
             "sub": str(user.id),
@@ -32,7 +31,10 @@ def login(request: LoginRequest):
         }
 
         token = create_access_token(payload)
-        return success_response(data={"access_token": token, "token_type": "bearer"})
+        return {
+            "access_token": token,
+            "token_type": "bearer"
+        }
     finally:
         db_gen.close()
 
@@ -44,9 +46,9 @@ def change_password(
         db: Session = Depends(get_db)
 ):
     if not pwd_context.verify(data.current_password, admin.password_hash):
-        return error_response("Incorrect current password", 401)
+        raise HTTPException(status_code=401, detail="Incorrect current password")
 
     admin.password_hash = pwd_context.hash(data.new_password)
     db.add(admin)
     db.commit()
-    return success_response(message="Password changed successfully.")
+    return {"message": "Password changed successfully."}

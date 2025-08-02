@@ -1,6 +1,11 @@
+from typing import List
+
 from dotenv import load_dotenv
+
+from ..schemas.game import GamePreview, PlatformPreview
 from ..utils.formatting import format_igdb_game
-from ..utils.external import get_igdb_token, fetch_igdb_game, fetch_igdb_collection, fetch_igdb_involved_companies
+from ..utils.external import get_igdb_token, fetch_igdb_game, fetch_igdb_collection, fetch_igdb_involved_companies, \
+    search_igdb_games
 from ..utils.platform import ensure_platforms_exist
 from sqlalchemy.orm import Session
 from ..utils.igdb_tag import upsert_igdb_tags
@@ -10,9 +15,8 @@ load_dotenv()
 
 import os
 import httpx
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from ..utils.auth import get_current_admin
-from ..utils.response import success_response, error_response
 
 router = APIRouter(tags=["IGDB"])
 
@@ -21,66 +25,57 @@ IGDB_URL = "https://api.igdb.com/v4/games"
 QUERY_LIMIT = int(os.getenv("QUERY_LIMIT", "50"))
 
 
-@router.get("/search")
-async def search_games(name: str, db: Session = Depends(get_db)):
-    token = await get_igdb_token()
-    headers = {
-        "Client-ID": CLIENT_ID,
-        "Authorization": f"Bearer {token}",
-    }
-    query = (
-        f'search "{name}"; '
-        'fields id, name, cover.url, first_release_date, platforms.id, platforms.name, summary, game_modes; '
-        f'limit {QUERY_LIMIT};'
-    )
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(IGDB_URL, data=query, headers=headers)
-    if resp.status_code != 200:
-        return error_response(resp.text, resp.status_code)
-    results = resp.json()
-    formatted = [format_igdb_game(game, db) for game in results]
-    return success_response(data={"results": formatted})
+@router.get("/search", response_model=list[GamePreview])
+async def igdb_game_search(q: str, db: Session = Depends(get_db)):
+    if not q or len(q.strip()) < 2:
+        raise HTTPException(status_code=400, detail="Query must be at least 2 characters")
+
+    games_raw = await search_igdb_games(q)
+    if not games_raw:
+        return []
+
+    return [
+        GamePreview(
+            id=game["id"],
+            name=game["name"],
+            cover_url=game["cover_url"],
+            release_date=game["release_date"],
+            summary=game["summary"],
+            platforms=game["platforms"]
+        )
+        for game in (format_igdb_game(g, db) for g in games_raw)
+    ]
 
 
 @router.get("/game/{igdb_id}", dependencies=[Depends(get_current_admin)])
-async def get_igdb_game_by_id(
-        igdb_id: int,
-        db: Session = Depends(get_db)
-):
+async def get_igdb_game_by_id(igdb_id: int, db: Session = Depends(get_db)):
     raw = await fetch_igdb_game(igdb_id)
     if not raw:
-        return error_response("Game not found on IGDB", 404)
+        raise HTTPException(status_code=404, detail="Game not found on IGDB")
 
     game = format_igdb_game(raw, db)
 
     collections = await fetch_igdb_collection(igdb_id)
     game["collection"] = collections[0] if collections else None
 
-    platforms = game.get("platforms", [])
-    if platforms:
-        ensure_platforms_exist(db, platforms)
+    if game.get("platforms"):
+        ensure_platforms_exist(db, game["platforms"])
 
-    if "tags" in raw and raw["tags"]:
+    if raw.get("tags"):
         tags = await upsert_igdb_tags(db, raw["tags"])
         db.commit()
         game["igdb_tags"] = [{"id": t.id, "name": t.name} for t in tags]
     else:
         game["igdb_tags"] = []
 
-    if "involved_companies" in raw and raw["involved_companies"]:
-        game["companies"] = await fetch_igdb_involved_companies(raw["involved_companies"])
+    if raw.get("involved_companies"):
+        companies = await fetch_igdb_involved_companies(raw["involved_companies"])
+        game["companies"] = companies
+
+        from gamecubby_api.utils.game_company import upsert_companies
+        upsert_companies(db, companies)
+        db.commit()
     else:
         game["companies"] = []
 
-    if game["companies"]:
-        from gamecubby_api.utils.game_company import upsert_companies
-        upsert_companies(db, game["companies"])
-        db.commit()
-
-    return success_response(data=game)
-
-
-@router.get("/collection_lookup/{game_id}", dependencies=[Depends(get_current_admin)])
-async def collection_lookup(game_id: int):
-    result = await fetch_igdb_collection(game_id)
-    return success_response(data=result)
+    return game
