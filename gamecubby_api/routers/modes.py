@@ -10,6 +10,7 @@ from ..utils.mode import (
     get_mode_by_id,
 )
 from ..utils.auth import get_current_admin
+from ..models.game import Game
 
 router = APIRouter(prefix="/modes", tags=["Modes"])
 
@@ -21,17 +22,31 @@ def get_all_modes(db: Session = Depends(get_db)):
 
 @router.post("/assign", dependencies=[Depends(get_current_admin)])
 def assign_mode(game_id: int, mode_id: int, db: Session = Depends(get_db)):
+    game = db.query(Game).filter_by(id=game_id).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    if game.igdb_id != 0:
+        raise HTTPException(status_code=403, detail="Cannot assign mode to IGDB-managed games")
+
     ok = assign_mode_to_game(db, game_id, mode_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Game or Mode not found")
+        raise HTTPException(status_code=404, detail="Mode not found")
     return {"message": "Mode assigned to game."}
 
 
 @router.post("/remove", dependencies=[Depends(get_current_admin)])
 def remove_mode(game_id: int, mode_id: int, db: Session = Depends(get_db)):
+    game = db.query(Game).filter_by(id=game_id).first()
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    if game.igdb_id != 0:
+        raise HTTPException(status_code=403, detail="Cannot remove mode from IGDB-managed games")
+
     ok = remove_mode_from_game(db, game_id, mode_id)
     if not ok:
-        raise HTTPException(status_code=404, detail="Game or Mode not found")
+        raise HTTPException(status_code=404, detail="Mode not found")
     return {"message": "Mode removed from game."}
 
 
