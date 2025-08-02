@@ -101,7 +101,7 @@ class PlatformPreview(BaseModel):
         from_attributes = True
 
 
-class IGDBGamePreview(BaseModel):
+class GamePreview(BaseModel):
     id: int
     name: str
     cover_url: Optional[str] = None

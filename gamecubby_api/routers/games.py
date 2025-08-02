@@ -9,7 +9,7 @@ from ..schemas.game import (
     GameCreate,
     GameUpdate,
     AssignLocationRequest,
-    AddGameFromIGDBRequest,
+    AddGameFromIGDBRequest, GamePreview,
 )
 from ..utils.game import (
     list_games,
@@ -23,7 +23,7 @@ from ..utils.game import (
     add_game_from_igdb,
     refresh_game_metadata,
     refresh_all_games_metadata,
-    force_refresh_metadata,
+    force_refresh_metadata, list_games_preview,
 )
 from ..utils.game_tag import attach_tag, detach_tag, list_tags_for_game
 from ..utils.game_platform import attach_platform, detach_platform, list_platforms_for_game
@@ -35,9 +35,9 @@ from ..utils.auth import get_current_admin
 router = APIRouter(prefix="/games", tags=["Games"])
 
 
-@router.get("/", response_model=List[GameSchema])
+@router.get("/", response_model=List[GamePreview])
 def get_all_games(db: Session = Depends(get_db)):
-    return list_games(db)
+    return list_games_preview(db)
 
 
 @router.get("/{game_id}", response_model=GameSchema)

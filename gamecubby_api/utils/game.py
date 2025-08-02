@@ -4,6 +4,7 @@ from .location import get_location_path, get_default_location_id
 from .mode import upsert_mode
 from ..models import game_tags, game_platforms
 from ..models.location import Location
+from ..schemas.game import GamePreview, PlatformPreview
 from ..utils.external import fetch_igdb_game, fetch_igdb_collection
 from ..utils.platform import upsert_platform
 from ..utils.collection import create_collection
@@ -481,3 +482,27 @@ def force_refresh_metadata(session: Session) -> Dict[str, int]:
     session.commit()
     print("Force refresh: all updated_at set to 0.")
     return refresh_all_games_metadata(session)
+
+
+def list_games_preview(db: Session) -> list[GamePreview]:
+    games = db.query(Game).all()
+    result = []
+
+    for game in games:
+        preview = GamePreview(
+            id=game.id,
+            name=game.name,
+            cover_url=game.cover_url,
+            release_date=game.release_date,
+            summary=game.summary,
+            platforms=[
+                PlatformPreview(
+                    id=platform.id,
+                    name=platform.name
+                )
+                for platform in game.platforms
+            ]
+        )
+        result.append(preview)
+
+    return result

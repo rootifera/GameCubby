@@ -2,7 +2,7 @@ from typing import List
 
 from dotenv import load_dotenv
 
-from ..schemas.game import IGDBGamePreview, PlatformPreview
+from ..schemas.game import GamePreview, PlatformPreview
 from ..utils.formatting import format_igdb_game
 from ..utils.external import get_igdb_token, fetch_igdb_game, fetch_igdb_collection, fetch_igdb_involved_companies, \
     search_igdb_games
@@ -25,7 +25,7 @@ IGDB_URL = "https://api.igdb.com/v4/games"
 QUERY_LIMIT = int(os.getenv("QUERY_LIMIT", "50"))
 
 
-@router.get("/search", response_model=list[IGDBGamePreview])
+@router.get("/search", response_model=list[GamePreview])
 async def igdb_game_search(q: str, db: Session = Depends(get_db)):
     if not q or len(q.strip()) < 2:
         raise HTTPException(status_code=400, detail="Query must be at least 2 characters")
@@ -35,7 +35,7 @@ async def igdb_game_search(q: str, db: Session = Depends(get_db)):
         return []
 
     return [
-        IGDBGamePreview(
+        GamePreview(
             id=game["id"],
             name=game["name"],
             cover_url=game["cover_url"],
