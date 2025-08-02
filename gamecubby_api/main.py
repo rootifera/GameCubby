@@ -81,7 +81,7 @@ app.include_router(downloads_router)
 def read_root():
     return {
         "app_name": "GameCubby API",
-        "version": "0.2",
+        "version": "0.3",
         "build_name": "Griswold Goodsoup",
-        "build_time": 1753997897
+        "build_time": 1754172029
     }
