@@ -1,8 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta, timezone
 from typing import List
-
 from ..db import get_db
 from ..schemas.game import (
     Game as GameSchema,
@@ -12,14 +10,10 @@ from ..schemas.game import (
     AddGameFromIGDBRequest, GamePreview,
 )
 from ..utils.game import (
-    list_games,
     get_game,
     create_game,
     update_game,
     delete_game,
-    list_games_by_tag,
-    list_games_by_platform,
-    list_games_by_location,
     add_game_from_igdb,
     refresh_game_metadata,
     refresh_all_games_metadata,
