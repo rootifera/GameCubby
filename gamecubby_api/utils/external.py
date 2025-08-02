@@ -132,3 +132,28 @@ async def fetch_igdb_involved_companies(involved_ids: list[int]) -> list[dict]:
         }
         for ic in raw if "company" in ic
     ]
+
+
+async def search_igdb_games(name_query: str) -> list[dict]:
+    token = await get_igdb_token()
+    client_id = os.getenv("CLIENT_ID")
+
+    headers = {
+        "Client-ID": client_id,
+        "Authorization": f"Bearer {token}"
+    }
+
+    igdb_query = (
+        f'search "{name_query}"; '
+        "fields id, name, cover.url, first_release_date, summary, platforms.id, platforms.name; "
+        "limit 50;"
+    )
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            "https://api.igdb.com/v4/games",
+            headers=headers,
+            data=igdb_query
+        )
+    response.raise_for_status()
+    return response.json()

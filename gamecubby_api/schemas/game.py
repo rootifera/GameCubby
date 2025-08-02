@@ -91,3 +91,23 @@ class AddGameFromIGDBRequest(BaseModel):
     tag_ids: list[int] = []
     condition: int | None = None
     order: int | None = None
+
+
+class PlatformPreview(BaseModel):
+    id: int
+    name: str
+
+    class Config:
+        from_attributes = True
+
+
+class IGDBGamePreview(BaseModel):
+    id: int
+    name: str
+    cover_url: Optional[str] = None
+    release_date: Optional[int] = None
+    summary: Optional[str] = None
+    platforms: List[PlatformPreview] = []
+
+    class Config:
+        from_attributes = True

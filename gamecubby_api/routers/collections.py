@@ -5,6 +5,7 @@ from ..schemas.collection import Collection as CollectionSchema, CollectionCreat
 from ..utils.collection import create_collection, get_collection, list_collections
 from ..models.collection import Collection
 from ..utils.auth import get_current_admin
+from ..utils.external import fetch_igdb_collection
 
 router = APIRouter(prefix="/collections", tags=["Collections"])
 
@@ -29,3 +30,9 @@ def get_collection_by_id(collection_id: int, db: Session = Depends(get_db)):
     if not collection:
         raise HTTPException(status_code=404, detail="Collection not found")
     return collection
+
+
+@router.get("/collection_lookup/{game_id}", dependencies=[Depends(get_current_admin)])
+async def collection_lookup(game_id: int):
+    result = await fetch_igdb_collection(game_id)
+    return {"collection": result}
