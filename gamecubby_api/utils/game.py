@@ -100,6 +100,7 @@ def create_game(session: Session, game_data: dict) -> Game:
     perspective_ids = game_data.pop("player_perspective_ids", [])
     tag_ids = game_data.pop("tag_ids", [])
     collection_id = game_data.pop("collection_id", None)
+    company_ids = game_data.pop("company_ids", [])
 
     game_data["igdb_id"] = 0
     game = Game(**game_data)
@@ -122,6 +123,9 @@ def create_game(session: Session, game_data: dict) -> Game:
             PlayerPerspective.id.in_(perspective_ids)).all()
     if tag_ids:
         game.tags = session.query(Tag).filter(Tag.id.in_(tag_ids)).all()
+    if company_ids:
+        companies = session.query(Company).filter(Company.id.in_(company_ids)).all()
+        game.companies = [GameCompany(company=c) for c in companies]
 
     session.commit()
     session.refresh(game)
@@ -167,6 +171,11 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
     collection_id = update_data.pop("collection_id", None)
     if collection_id is not None:
         game.collection = session.query(Collection).filter_by(id=collection_id).first()
+
+    company_ids = update_data.pop("company_ids", None)
+    if company_ids is not None:
+        companies = session.query(Company).filter(Company.id.in_(company_ids)).all()
+        game.companies = [GameCompany(company=c) for c in companies]
 
     for key, value in update_data.items():
         if value is not None:
