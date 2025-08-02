@@ -16,10 +16,10 @@ router = APIRouter(prefix="/locations", tags=["Locations"])
 
 @router.post("/", response_model=LocationSchema, dependencies=[Depends(get_current_admin)])
 def add_location(
-    name: str,
-    parent_id: int = None,
-    type: str = None,
-    db: Session = Depends(get_db),
+        name: str,
+        parent_id: int = None,
+        type: str = None,
+        db: Session = Depends(get_db),
 ):
     location = create_location(db, name, parent_id, type)
     return location

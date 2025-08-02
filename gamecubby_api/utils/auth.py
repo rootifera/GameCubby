@@ -22,8 +22,8 @@ def ensure_default_admin(db: Session) -> None:
 
 
 def get_current_admin(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
-    db: Session = Depends(get_db)
+        credentials: HTTPAuthorizationCredentials = Depends(security),
+        db: Session = Depends(get_db)
 ) -> AdminUser:
     token = credentials.credentials
     payload = decode_access_token(token)
