@@ -19,7 +19,7 @@ from sqlalchemy.orm import selectinload
 from ..models.playerperspective import PlayerPerspective
 from ..models.company import Company
 from ..models.game_company import GameCompany
-from ..utils.external import get_igdb_token
+from ..utils.external import get_igdb_token, _get_igdb_credentials
 from typing import List, Optional, cast, Dict, Tuple
 import asyncio
 import os
@@ -281,9 +281,10 @@ async def add_game_from_igdb(
     company_name_map = {}
 
     if involved_company_ids:
+        client_id, _ = _get_igdb_credentials(session)
         token = await get_igdb_token()
         headers = {
-            "Client-ID": os.getenv("CLIENT_ID"),
+            "Client-ID": client_id,
             "Authorization": f"Bearer {token}"
         }
 

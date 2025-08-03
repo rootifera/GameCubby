@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..schemas.mode import Mode as ModeSchema
-from ..utils.mode import list_modes, sync_modes_from_igdb, get_mode_by_id
+from ..utils.mode import list_modes, sync_modes, get_mode_by_id
 from ..utils.auth import get_current_admin
 
 router = APIRouter(prefix="/modes", tags=["Modes"])
@@ -24,7 +24,7 @@ def get_mode(mode_id: int, db: Session = Depends(get_db)):
 @router.post("/sync", dependencies=[Depends(get_current_admin)])
 async def sync_modes_endpoint(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     async def run_sync():
-        await sync_modes_from_igdb(db)
+        await sync_modes(db)
 
     background_tasks.add_task(run_sync)
     return {"message": "Mode sync started in background."}

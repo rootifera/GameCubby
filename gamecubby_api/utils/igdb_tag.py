@@ -2,13 +2,14 @@ import os
 import httpx
 from sqlalchemy.orm import Session
 from ..models.igdb_tag import IGDBTag
-from ..utils.external import get_igdb_token
+from ..utils.external import get_igdb_token, _get_igdb_credentials
 from collections import defaultdict
 
 TAG_TYPE_ENDPOINTS = {
     0: "themes",
     2: "keywords",
 }
+
 
 
 async def upsert_igdb_tags(db: Session, tag_numbers: list[int]) -> list[IGDBTag]:
@@ -26,10 +27,10 @@ async def upsert_igdb_tags(db: Session, tag_numbers: list[int]) -> list[IGDBTag]
     existing_map = {tag.id: tag for tag in existing_tags}
     new_tags = []
 
-    CLIENT_ID = os.getenv("CLIENT_ID")
+    client_id, _ = _get_igdb_credentials(db)
     token = await get_igdb_token()
     headers = {
-        "Client-ID": CLIENT_ID,
+        "Client-ID": client_id,
         "Authorization": f"Bearer {token}"
     }
 

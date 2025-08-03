@@ -1,5 +1,6 @@
 from sqlalchemy.orm import Session
 from typing import Optional, List
+import secrets
 from ..models.app_config import AppConfig
 
 
@@ -30,3 +31,13 @@ def delete_app_config_key(db: Session, key: str) -> bool:
 
 def list_all_app_config(db: Session) -> List[AppConfig]:
     return db.query(AppConfig).order_by(AppConfig.key).all()
+
+
+def get_or_create_secret_key(db: Session) -> str:
+    key = "SECRET_KEY"
+    value = get_app_config_value(db, key)
+    if value:
+        return value
+    generated = secrets.token_urlsafe(64)
+    set_app_config_value(db, key, generated)
+    return generated

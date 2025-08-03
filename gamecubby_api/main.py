@@ -12,7 +12,7 @@ from fastapi import FastAPI
 
 from .utils.auth import ensure_default_admin
 from .utils.playerperspective import sync_player_perspectives
-from .utils.mode import sync_modes_from_igdb
+from .utils.mode import sync_modes
 from .utils.genre import sync_genres
 from .utils.storage import ensure_game_folders
 from .utils.location import create_location, list_all_locations
@@ -50,7 +50,7 @@ async def lifespan(app: FastAPI):
                 create_location(db, name="Default Storage", parent_id=None, type="root")
 
             await sync_player_perspectives(db)
-            await sync_modes_from_igdb(db)
+            await sync_modes(db)
             await sync_genres(db)
 
         except Exception as e:

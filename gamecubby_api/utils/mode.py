@@ -1,9 +1,8 @@
-import os
 import httpx
 from typing import Optional
 from sqlalchemy.orm import Session
 
-from .external import get_igdb_token
+from .external import get_igdb_token, _get_igdb_credentials
 from ..models.mode import Mode
 from ..models.game import Game
 
@@ -50,16 +49,16 @@ def remove_mode_from_game(db: Session, game_id: int, mode_id: int) -> bool:
     return True
 
 
-async def sync_modes_from_igdb(db: Session) -> int:
+async def sync_modes(db: Session) -> int:
     """
     Fetch all game modes from IGDB and upsert into local DB.
     Returns the number of modes synced.
     """
-    CLIENT_ID = os.getenv("CLIENT_ID")
+    client_id, _ = _get_igdb_credentials(db)
     token = await get_igdb_token()
 
     headers = {
-        "Client-ID": CLIENT_ID,
+        "Client-ID": client_id,
         "Authorization": f"Bearer {token}"
     }
 

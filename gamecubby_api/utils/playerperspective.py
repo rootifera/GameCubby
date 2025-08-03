@@ -2,7 +2,7 @@ import os
 import httpx
 from sqlalchemy.orm import Session
 from ..models.playerperspective import PlayerPerspective
-from ..utils.external import get_igdb_token
+from ..utils.external import get_igdb_token, _get_igdb_credentials
 
 
 async def sync_player_perspectives(db: Session) -> int:
@@ -10,11 +10,11 @@ async def sync_player_perspectives(db: Session) -> int:
     Fetch all player perspectives from IGDB and sync to DB.
     Returns the number of entries synced.
     """
-    CLIENT_ID = os.getenv("CLIENT_ID")
+    client_id, _ = _get_igdb_credentials(db)
     token = await get_igdb_token()
 
     headers = {
-        "Client-ID": CLIENT_ID,
+        "Client-ID": client_id,
         "Authorization": f"Bearer {token}"
     }
 
