@@ -1,8 +1,8 @@
-"""fresh
+"""initial
 
-Revision ID: 846d01ae7d62
+Revision ID: a7728363e60f
 Revises: 
-Create Date: 2025-08-01 14:29:55.910434
+Create Date: 2025-08-03 21:10:32.300183
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '846d01ae7d62'
+revision: str = 'a7728363e60f'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -28,6 +28,14 @@ def upgrade() -> None:
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('username')
     )
+    op.create_table('app_config',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('key', sa.String(), nullable=False),
+    sa.Column('value', sa.String(), nullable=False),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_app_config_id'), 'app_config', ['id'], unique=False)
+    op.create_index(op.f('ix_app_config_key'), 'app_config', ['key'], unique=True)
     op.create_table('collections',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('igdb_id', sa.Integer(), nullable=True),
@@ -192,5 +200,8 @@ def downgrade() -> None:
     op.drop_table('files')
     op.drop_table('companies')
     op.drop_table('collections')
+    op.drop_index(op.f('ix_app_config_key'), table_name='app_config')
+    op.drop_index(op.f('ix_app_config_id'), table_name='app_config')
+    op.drop_table('app_config')
     op.drop_table('admin_users')
     # ### end Alembic commands ###

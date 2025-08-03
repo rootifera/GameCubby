@@ -32,6 +32,7 @@ from .routers.playerperspectives import router as perspectives_router
 from .routers.company import router as company_router
 from .routers.search import router as search_router
 from .routers.auth import router as auth_router
+from .routers.app_config import router as appconfig_router
 
 from .utils.db_tools import with_db
 
@@ -40,7 +41,7 @@ from .utils.db_tools import with_db
 async def lifespan(app: FastAPI):
     ensure_game_folders(autocreate_all=True)
 
-    with with_db() as db:  # ✅ CHANGED
+    with with_db() as db:
         try:
             ensure_default_admin(db)
 
@@ -61,6 +62,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 app.include_router(auth_router)
+app.include_router(appconfig_router)
 app.include_router(igdb.router, prefix="/igdb")
 app.include_router(games_router)
 app.include_router(collections_router)
