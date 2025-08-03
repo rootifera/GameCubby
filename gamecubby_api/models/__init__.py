@@ -20,3 +20,4 @@ from .game_mode import game_modes
 from .game_genre import game_genres
 from .game_playerperspective import game_playerperspectives
 from .igdb_tag import IGDBTag, game_igdb_tags
+from .app_config import AppConfig

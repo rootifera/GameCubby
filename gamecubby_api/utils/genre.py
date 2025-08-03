@@ -1,16 +1,15 @@
-import os
 import httpx
 from sqlalchemy.orm import Session
 from ..models.genre import Genre
-from ..utils.external import get_igdb_token
+from ..utils.external import get_igdb_token, _get_igdb_credentials
 
 
 async def sync_genres(db: Session) -> list[dict]:
-    CLIENT_ID = os.getenv("CLIENT_ID")
+    client_id, _ = _get_igdb_credentials(db)
     token = await get_igdb_token()
 
     headers = {
-        "Client-ID": CLIENT_ID,
+        "Client-ID": client_id,
         "Authorization": f"Bearer {token}",
     }
 

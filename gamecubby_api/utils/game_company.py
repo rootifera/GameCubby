@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 import asyncio
 import os
 import httpx
-from .external import get_igdb_token
+from .external import get_igdb_token, _get_igdb_credentials
 
 
 def upsert_companies(db: Session, company_data: list[dict]) -> list[Company]:
@@ -23,10 +23,10 @@ def upsert_companies(db: Session, company_data: list[dict]) -> list[Company]:
 
 
 async def sync_company_names(db: Session) -> int:
-    CLIENT_ID = os.getenv("CLIENT_ID")
+    client_id, _ = _get_igdb_credentials(db)
     token = await get_igdb_token()
     headers = {
-        "Client-ID": CLIENT_ID,
+        "Client-ID": client_id,
         "Authorization": f"Bearer {token}",
     }
 

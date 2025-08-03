@@ -20,7 +20,6 @@ from ..utils.auth import get_current_admin
 
 router = APIRouter(tags=["IGDB"])
 
-CLIENT_ID = os.getenv("CLIENT_ID")
 IGDB_URL = "https://api.igdb.com/v4/games"
 QUERY_LIMIT = int(os.getenv("QUERY_LIMIT", "50"))
 

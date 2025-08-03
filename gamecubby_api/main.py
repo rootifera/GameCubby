@@ -12,7 +12,7 @@ from fastapi import FastAPI
 
 from .utils.auth import ensure_default_admin
 from .utils.playerperspective import sync_player_perspectives
-from .utils.mode import sync_modes_from_igdb
+from .utils.mode import sync_modes
 from .utils.genre import sync_genres
 from .utils.storage import ensure_game_folders
 from .utils.location import create_location, list_all_locations
@@ -32,6 +32,7 @@ from .routers.playerperspectives import router as perspectives_router
 from .routers.company import router as company_router
 from .routers.search import router as search_router
 from .routers.auth import router as auth_router
+from .routers.app_config import router as appconfig_router
 
 from .utils.db_tools import with_db
 
@@ -40,7 +41,7 @@ from .utils.db_tools import with_db
 async def lifespan(app: FastAPI):
     ensure_game_folders(autocreate_all=True)
 
-    with with_db() as db:  # ✅ CHANGED
+    with with_db() as db:
         try:
             ensure_default_admin(db)
 
@@ -49,7 +50,7 @@ async def lifespan(app: FastAPI):
                 create_location(db, name="Default Storage", parent_id=None, type="root")
 
             await sync_player_perspectives(db)
-            await sync_modes_from_igdb(db)
+            await sync_modes(db)
             await sync_genres(db)
 
         except Exception as e:
@@ -61,6 +62,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 app.include_router(auth_router)
+app.include_router(appconfig_router)
 app.include_router(igdb.router, prefix="/igdb")
 app.include_router(games_router)
 app.include_router(collections_router)
