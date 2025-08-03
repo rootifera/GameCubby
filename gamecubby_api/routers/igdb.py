@@ -1,7 +1,5 @@
 from typing import List
 
-from dotenv import load_dotenv
-
 from ..schemas.game import GamePreview, PlatformPreview
 from ..utils.formatting import format_igdb_game
 from ..utils.external import get_igdb_token, fetch_igdb_game, fetch_igdb_collection, fetch_igdb_involved_companies, \
@@ -9,19 +7,16 @@ from ..utils.external import get_igdb_token, fetch_igdb_game, fetch_igdb_collect
 from ..utils.platform import ensure_platforms_exist
 from sqlalchemy.orm import Session
 from ..utils.igdb_tag import upsert_igdb_tags
-from ..db import get_db
+from ..utils.app_config import get_int_config_value, get_or_create_query_limit
 
-load_dotenv()
-
-import os
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from ..utils.auth import get_current_admin
+from ..db import get_db
 
 router = APIRouter(tags=["IGDB"])
 
+QUERY_LIMIT = get_or_create_query_limit(next(get_db()))
 IGDB_URL = "https://api.igdb.com/v4/games"
-QUERY_LIMIT = int(os.getenv("QUERY_LIMIT", "50"))
 
 
 @router.get("/search", response_model=list[GamePreview])
