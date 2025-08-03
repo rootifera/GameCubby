@@ -11,7 +11,6 @@ import aiofiles
 
 from ..models.game import Game
 from ..models.storage import GameFile
-from ..db import get_db
 from ..utils.db_tools import with_db
 
 STORAGE_ROOT = Path("./storage")
