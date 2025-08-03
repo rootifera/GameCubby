@@ -28,6 +28,12 @@ def delete_app_config_key(db: Session, key: str) -> bool:
     db.commit()
     return True
 
+def get_int_config_value(db: Session, key: str, default: int) -> int:
+    value = get_app_config_value(db, key)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 def list_all_app_config(db: Session) -> List[AppConfig]:
     return db.query(AppConfig).order_by(AppConfig.key).all()
@@ -41,3 +47,13 @@ def get_or_create_secret_key(db: Session) -> str:
     generated = secrets.token_urlsafe(64)
     set_app_config_value(db, key, generated)
     return generated
+
+def get_or_create_query_limit(db: Session, default: int = 50) -> int:
+    key = "QUERY_LIMIT"
+    value = get_app_config_value(db, key)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        # Auto-create if missing or invalid
+        set_app_config_value(db, key, str(default))
+        return default
