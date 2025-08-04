@@ -36,6 +36,7 @@ from .routers.auth import router as auth_router
 from .routers.app_config import router as appconfig_router
 from .routers.setup import router as setup_router
 from .routers.export import router as export_router
+from .routers.backups import router as backups_router
 
 from .utils.db_tools import with_db
 
@@ -81,6 +82,8 @@ app.include_router(storage_router)
 app.include_router(sync_storage_router)
 app.include_router(downloads_router)
 app.include_router(export_router)
+app.include_router(backups_router)
+
 
 @app.get("/")
 def read_root():
