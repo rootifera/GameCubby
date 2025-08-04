@@ -1,5 +1,7 @@
 import logging
 
+from .utils.app_config import get_app_config_value
+
 logging.getLogger("passlib.handlers.bcrypt").setLevel(logging.ERROR)
 
 from dotenv import load_dotenv
@@ -48,9 +50,10 @@ async def lifespan(app: FastAPI):
                 print("[Startup] No locations found. Creating 'Default Storage' root.")
                 create_location(db, name="Default Storage", parent_id=None, type="root")
 
-            await sync_player_perspectives(db)
-            await sync_modes(db)
-            await sync_genres(db)
+            if get_app_config_value(db, "is_firstrun_done") == "true":
+                await sync_player_perspectives(db)
+                await sync_modes(db)
+                await sync_genres(db)
 
         except Exception as e:
             print(f"[Startup Sync Warning] Failed: {e}")
