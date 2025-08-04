@@ -1,0 +1,41 @@
+services:
+  gamecubby-db:
+    container_name: gamecubby-db
+    image: postgres:17
+    restart: always
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - gamecubby_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  gamecubby-api:
+    container_name: gamecubby-api
+    image: rootifera/gamecubby-api:v1.0
+    build:
+      context: .
+      dockerfile: gamecubby_api/Dockerfile
+    restart: on-failure
+    env_file:
+      - .env
+    depends_on:
+      gamecubby-db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/app
+      - ./gamecubby_api/storage:/app/gamecubby_api/storage
+    command: >
+      bash -c "alembic upgrade head && uvicorn gamecubby_api.main:app --host 0.0.0.0 --reload"
+
+volumes:
+  gamecubby_db_data:
