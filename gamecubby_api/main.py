@@ -89,7 +89,7 @@ app.include_router(backups_router)
 def read_root():
     return {
         "app_name": "GameCubby API",
-        "version": "0.3",
-        "build_name": "Griswold Goodsoup",
+        "version": "1.0",
+        "build_name": "Guybrush Threepwood",
         "build_time": 1754172029
     }
