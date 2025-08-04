@@ -10,7 +10,6 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 from fastapi import FastAPI
 
-from .utils.auth import ensure_default_admin
 from .utils.playerperspective import sync_player_perspectives
 from .utils.mode import sync_modes
 from .utils.genre import sync_genres
@@ -33,6 +32,7 @@ from .routers.company import router as company_router
 from .routers.search import router as search_router
 from .routers.auth import router as auth_router
 from .routers.app_config import router as appconfig_router
+from .routers.setup import router as setup_router
 
 from .utils.db_tools import with_db
 
@@ -43,8 +43,6 @@ async def lifespan(app: FastAPI):
 
     with with_db() as db:
         try:
-            ensure_default_admin(db)
-
             if not list_all_locations(db):
                 print("[Startup] No locations found. Creating 'Default Storage' root.")
                 create_location(db, name="Default Storage", parent_id=None, type="root")
@@ -63,6 +61,7 @@ app = FastAPI(lifespan=lifespan)
 
 app.include_router(auth_router)
 app.include_router(appconfig_router)
+app.include_router(setup_router)
 app.include_router(igdb.router, prefix="/igdb")
 app.include_router(games_router)
 app.include_router(collections_router)
