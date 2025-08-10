@@ -5,12 +5,12 @@ from ..utils.app_config import get_app_config_value, set_app_config_value
 
 
 def perform_first_run_setup(
-    db: Session,
-    admin_username: str,
-    admin_password: str,
-    igdb_client_id: str,
-    igdb_client_secret: str,
-    query_limit: int
+        db: Session,
+        admin_username: str,
+        admin_password: str,
+        igdb_client_id: str,
+        igdb_client_secret: str,
+        query_limit: int
 ) -> None:
     if get_app_config_value(db, "is_firstrun_done") == "true":
         raise ValueError("Setup already completed")
@@ -28,3 +28,12 @@ def perform_first_run_setup(
     set_app_config_value(db, "is_firstrun_done", "true")
 
     db.commit()
+
+
+def is_first_run_done(db: Session) -> bool:
+    """
+    Returns True if initial setup has been completed, otherwise False.
+    Treat any non-'true' value (including None) as False.
+    """
+    value = get_app_config_value(db, "is_firstrun_done")
+    return (value or "").lower() == "true"
