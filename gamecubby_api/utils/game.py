@@ -138,9 +138,10 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
         return None
 
     if game.igdb_id != 0:
-        allowed_fields = {"location_id", "order"}
-        if not all(k in allowed_fields for k in update_data.keys()):
-            raise ValueError("Cannot update IGDB-sourced games except location/order")
+        allowed_fields = {"location_id", "order", "condition", "tag_ids"}
+        non_null_keys = {k for k, v in update_data.items() if v is not None}
+        if not non_null_keys.issubset(allowed_fields):
+            raise ValueError("Cannot update IGDB-sourced games except condition/location/order/tags")
 
     update_data.pop("igdb_id", None)
 
@@ -162,7 +163,8 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
     perspective_ids = update_data.pop("player_perspective_ids", None)
     if perspective_ids is not None:
         game.playerperspectives = session.query(PlayerPerspective).filter(
-            PlayerPerspective.id.in_(perspective_ids)).all()
+            PlayerPerspective.id.in_(perspective_ids)
+        ).all()
 
     tag_ids = update_data.pop("tag_ids", None)
     if tag_ids is not None:
@@ -183,6 +185,7 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
 
     session.commit()
     return game
+
 
 
 def delete_game(session: Session, game_id: int) -> bool:
