@@ -12,6 +12,7 @@ from ..utils.app_config import get_int_config_value, get_or_create_query_limit
 from fastapi import APIRouter, Depends, HTTPException, Query
 from ..utils.auth import get_current_admin
 from ..db import get_db
+from ..models.igdb_tag import IGDBTag  # ← added
 
 router = APIRouter(tags=["IGDB"])
 
@@ -73,3 +74,14 @@ async def get_igdb_game_by_id(igdb_id: int, db: Session = Depends(get_db)):
         game["companies"] = []
 
     return game
+
+
+@router.get("/tags/{tag_id}")
+def get_igdb_tag_by_id(tag_id: int, db: Session = Depends(get_db)):
+    """
+    Returns: { "id": <int>, "name": <str> }
+    """
+    tag = db.query(IGDBTag).filter(IGDBTag.id == tag_id).first()
+    if not tag:
+        raise HTTPException(status_code=404, detail="IGDB tag not found")
+    return {"id": tag.id, "name": tag.name}

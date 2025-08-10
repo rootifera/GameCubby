@@ -1,7 +1,6 @@
 from fastapi import Request, HTTPException
-from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
-from ..db import get_db
+
 from ..utils.db_tools import with_db
 
 from ..models.game import Game
@@ -55,6 +54,7 @@ def search_games_basic(request: Request) -> list[GameSchema]:
             else:
                 query = query.join(Game.tags).filter(Tag.id.in_(tag_ids_int))
 
+        # ORDER FIRST
         query = query.order_by(func.lower(Game.name))
 
         if limit:
@@ -130,6 +130,7 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
                     Game.release_date <= int(year_max)
                 )
             elif year_min:
+                # Note: currently equality; change to >= if desired
                 query = query.filter(Game.release_date == int(year_min))
             elif year_max:
                 query = query.filter(Game.release_date <= int(year_max))
@@ -150,9 +151,9 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
             if mid.isdigit():
                 query = query.filter(Game.modes.any(Mode.id == int(mid)))
 
-        for pid in qp.getlist("perspective_ids"):
-            if pid.isdigit():
-                query = query.filter(Game.playerperspectives.any(PlayerPerspective.id == int(pid)))
+        for ppid in qp.getlist("perspective_ids"):
+            if ppid.isdigit():
+                query = query.filter(Game.playerperspectives.any(PlayerPerspective.id == int(ppid)))
 
         if coll := qp.get("collection_id"):
             if coll.isdigit():
@@ -177,14 +178,16 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
         elif include_manual == "only":
             query = query.filter(Game.igdb_id == 0)
 
-        if lim := qp.get("limit"):
-            if lim.isdigit():
-                query = query.limit(int(lim))
-        if off := qp.get("offset"):
-            if off.isdigit():
-                query = query.offset(int(off))
-
+        # ✅ ORDER BEFORE LIMIT/OFFSET (fixes InvalidRequestError)
         query = query.order_by(func.lower(Game.name))
+
+        lim = qp.get("limit")
+        off = qp.get("offset")
+        if lim and lim.isdigit():
+            query = query.limit(int(lim))
+        if off and off.isdigit():
+            query = query.offset(int(off))
+
         results = query.all()
         return [GameSchema.model_validate(g) for g in results]
 
@@ -205,20 +208,23 @@ def search_game_name_suggestions(request: Request) -> list[str]:
         return [r[0] for r in results]
 
 
-def search_tag_suggestions(request: Request) -> list[str]:
+def search_tag_suggestions(request: Request) -> list[dict]:
+    """
+    Return tag suggestions as a list of {id, name} objects (max 10).
+    """
     query_text = request.query_params.get("q", "").strip()
     if len(query_text) < 2:
         raise HTTPException(status_code=400, detail="Query must be at least 2 characters")
 
     with with_db() as db:
-        results = (
-            db.query(Tag.name)
+        rows = (
+            db.query(Tag)
             .filter(Tag.name.ilike(f"%{query_text}%"))
             .order_by(func.lower(Tag.name))
             .limit(10)
             .all()
         )
-        return [r[0] for r in results]
+        return [{"id": t.id, "name": t.name} for t in rows]
 
 
 def search_igdb_tag_suggestions(request: Request) -> list[dict]:
