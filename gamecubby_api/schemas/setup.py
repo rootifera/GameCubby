@@ -7,3 +7,4 @@ class FirstRunRequest(BaseModel):
     igdb_client_id: str
     igdb_client_secret: str
     query_limit: int = 50
+    public_downloads_enabled: bool = Field(False)

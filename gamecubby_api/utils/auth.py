@@ -1,3 +1,5 @@
+from typing import Optional
+
 from passlib.context import CryptContext
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -8,9 +10,10 @@ from ..db import get_db
 from .jwt import decode_access_token
 
 security = HTTPBearer()
+
+security_optional = HTTPBearer(auto_error=False)
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-
 
 
 def get_current_admin(
@@ -33,6 +36,32 @@ def get_current_admin(
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
 
+    return user
+
+
+def get_current_admin_optional(
+        credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_optional),
+        db: Session = Depends(get_db)
+) -> Optional[AdminUser]:
+    """
+    Return the AdminUser if a valid admin bearer token is provided; otherwise None.
+    Never raises for missing/invalid/unauthorized tokens (so routes can fall back to public behavior).
+    """
+    if not credentials:
+        return None
+
+    token = credentials.credentials
+    try:
+        payload = decode_access_token(token)
+    except Exception:
+        return None
+
+    user_id = payload.get("sub")
+    role = payload.get("role")
+    if role != "admin" or not user_id:
+        return None
+
+    user = db.query(AdminUser).filter_by(id=int(user_id)).first()
     return user
 
 

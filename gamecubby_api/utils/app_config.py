@@ -54,6 +54,5 @@ def get_or_create_query_limit(db: Session, default: int = 50) -> int:
     try:
         return int(value)
     except (TypeError, ValueError):
-        # Auto-create if missing or invalid
         set_app_config_value(db, key, str(default))
         return default

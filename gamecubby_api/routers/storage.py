@@ -1,15 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, Form, File
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, Form, File, Query
 from sqlalchemy.orm import Session
-from typing import List, Literal
+from typing import List, Optional
 from ..db import get_db
 from ..models.game import Game
 from ..models.storage import GameFile
-from ..schemas.storage import FileResponse
+from ..schemas.storage import FileResponse, FileCategory
 from ..utils.storage import (
     upload_and_register_file, sanitize_filename, delete_game_file,
     sync_game_files, sync_all_files, get_downloadable_file
 )
-from ..utils.auth import get_current_admin
+from ..utils.auth import get_current_admin, get_current_admin_optional
+from ..utils.app_config import get_app_config_value
 
 import logging
 
@@ -21,20 +22,29 @@ downloads_router = APIRouter(prefix='/downloads', tags=['Downloads'])
 
 
 @router.get('/', response_model=List[FileResponse])
-def list_files(game_id: int, db: Session = Depends(get_db)) -> List[FileResponse]:
+def list_files(
+    game_id: int,
+    category: Optional[FileCategory] = Query(None, description="Filter by content category"),
+    db: Session = Depends(get_db),
+) -> List[FileResponse]:
     game = db.get(Game, game_id)
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
     game_ref = str(game.igdb_id) if game.igdb_id else "".join(c for c in game.name.lower() if c.isalnum())
-    files = db.query(GameFile).filter(GameFile.game == game_ref).all()
+
+    q = db.query(GameFile).filter(GameFile.game == game_ref)
+    if category is not None:
+        q = q.filter(GameFile.category == category)
+
+    files = q.all()
     return files
 
 
 @router.post('/upload', response_model=dict)
 async def upload_file(
         game_id: int,
-        file_type: Literal['isos', 'images', 'files'] = Form(...),
         label: str = Form(...),
+        category: FileCategory = Form(...),  # required content category
         file: UploadFile = File(...),
         db: Session = Depends(get_db),
         admin=Depends(get_current_admin)
@@ -43,17 +53,25 @@ async def upload_file(
     if not game:
         raise HTTPException(status_code=404, detail="Game not found")
 
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Missing filename")
+
     safe_name = sanitize_filename(file.filename)
 
     try:
         file_record = await upload_and_register_file(
-            db=db, game=game, upload_file=file,
-            file_type=file_type, label=label, safe_filename=safe_name
+            db=db,
+            game=game,
+            upload_file=file,
+            label=label,
+            safe_filename=safe_name,
+            category=category,
         )
         return {
             "file_id": file_record.id,
             "path": file_record.path,
-            "game_ref": file_record.game
+            "game_ref": file_record.game,
+            "category": file_record.category.value if hasattr(file_record.category, "value") else file_record.category,
         }
     except ValueError as e:
         if "already exists" in str(e) or "already registered" in str(e):
@@ -126,8 +144,31 @@ def full_system_sync(
     return {"message": "Full filesystem sync started in background."}
 
 
+@system_files_router.get("/categories", response_model=List[str])
+def list_file_categories() -> List[str]:
+    """
+    Returns the list of allowed content categories as strings.
+    """
+    return [c.value for c in FileCategory]
+
+
 @downloads_router.get("/{file_id}")
-async def download_file(file_id: int, db: Session = Depends(get_db)) -> FileResponse:
+async def download_file(
+    file_id: int,
+    db: Session = Depends(get_db),
+    admin = Depends(get_current_admin_optional),
+):
+    """
+    Single download endpoint:
+      - If caller is admin (valid bearer token), allow unconditionally.
+      - Otherwise require app_config 'public_downloads_enabled' to be truthy
+        ("true" | "1" | "yes" | "on", case-insensitive).
+    """
+    if not admin:
+        flag = (get_app_config_value(db, "public_downloads_enabled") or "").strip().lower()
+        if flag not in {"true", "1", "yes", "on"}:
+            raise HTTPException(status_code=403, detail="Public downloads are disabled")
+
     try:
         return get_downloadable_file(db, file_id)
     except Exception as e:
