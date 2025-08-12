@@ -17,6 +17,7 @@ def first_run(payload: FirstRunRequest, db: Session = Depends(get_db)):
             igdb_client_id=payload.igdb_client_id,
             igdb_client_secret=payload.igdb_client_secret,
             query_limit=payload.query_limit,
+            public_downloads_enabled=payload.public_downloads_enabled,  # NEW
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
