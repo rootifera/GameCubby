@@ -187,7 +187,6 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
     return game
 
 
-
 def delete_game(session: Session, game_id: int) -> bool:
     """
     Delete a game by its ID. Returns True if deleted, False if not found.
@@ -378,8 +377,20 @@ async def add_game_from_igdb(
         if tag not in game.igdb_tags:
             game.igdb_tags.append(tag)
 
+    merged_companies: dict[int, dict[str, bool]] = {}
     for ic in involved_company_data:
-        cid = ic["company"]
+        cid = ic.get("company")
+        if cid is None:
+            continue
+        entry = merged_companies.setdefault(
+            cid,
+            {"developer": False, "publisher": False, "porting": False, "supporting": False},
+        )
+        for k in ("developer", "publisher", "porting", "supporting"):
+            if ic.get(k, False):
+                entry[k] = True
+
+    for cid, flags in merged_companies.items():
         name = company_name_map.get(cid, "Unknown")
 
         company = session.query(Company).filter_by(id=cid).first()
@@ -390,10 +401,10 @@ async def add_game_from_igdb(
 
         link = GameCompany(
             company_id=cid,
-            developer=ic.get("developer", False),
-            publisher=ic.get("publisher", False),
-            porting=ic.get("porting", False),
-            supporting=ic.get("supporting", False),
+            developer=flags["developer"],
+            publisher=flags["publisher"],
+            porting=flags["porting"],
+            supporting=flags["supporting"],
         )
         game.companies.append(link)
 
@@ -406,6 +417,8 @@ async def refresh_game_metadata(session: Session, game_id: int) -> Tuple[Optiona
     """
     Refresh a game's metadata from IGDB if IGDB's updated_at is newer.
     Returns: (game, was_updated (bool), message)
+
+    NOTE: This does NOT modify platforms. We preserve the user's selected platforms.
     """
     game = session.query(Game).filter_by(id=game_id).first()
     if not game:
@@ -442,9 +455,8 @@ async def refresh_game_metadata(session: Session, game_id: int) -> Tuple[Optiona
     if mode_ids:
         game.modes = session.query(Mode).filter(Mode.id.in_(mode_ids)).all()
 
-    platform_ids = [p["id"] for p in game_data.get("platforms", [])]
-    if platform_ids:
-        game.platforms = session.query(Platform).filter(Platform.id.in_(platform_ids)).all()
+    # IMPORTANT: Do not update platforms here.
+    # We intentionally skip syncing platforms to preserve the user's owned selection.
 
     session.commit()
     session.refresh(game)
@@ -459,23 +471,26 @@ def refresh_all_games_metadata(session: Session) -> Dict[str, int]:
     updated, skipped, errors = 0, 0, 0
     games = session.query(Game).filter(Game.igdb_id.isnot(None), Game.igdb_id > 0).all()
 
-    for game in games:
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            _, did_update, msg = loop.run_until_complete(refresh_game_metadata(session, game.id))
-            loop.close()
-
-            if did_update:
-                updated += 1
-            elif "up to date" in msg:
-                skipped += 1
-            else:
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        for game in games:
+            try:
+                _, did_update, msg = loop.run_until_complete(
+                    refresh_game_metadata(session, game.id)
+                )
+                if did_update:
+                    updated += 1
+                elif isinstance(msg, str) and "up to date" in msg.lower():
+                    skipped += 1
+                else:
+                    errors += 1
+            except Exception as e:
+                print(f"Error refreshing game {game.id}: {e}")
                 errors += 1
-
-        except Exception as e:
-            print(f"Error refreshing game {game.id}: {e}")
-            errors += 1
+    finally:
+        asyncio.set_event_loop(None)
+        loop.close()
 
     print(f"Batch refresh: updated={updated}, skipped={skipped}, errors={errors}")
     return {"updated": updated, "skipped": skipped, "errors": errors}
@@ -483,9 +498,11 @@ def refresh_all_games_metadata(session: Session) -> Dict[str, int]:
 
 def force_refresh_metadata(session: Session) -> Dict[str, int]:
     """
-    Sets updated_at = 0 for all IGDB games, then calls batch refresh.
+    Sets updated_at = 0 for all IGDB-backed games, then calls batch refresh.
     """
-    session.query(Game).filter(Game.igdb_id.isnot(None), Game.igdb_id > 0).update({Game.updated_at: 0})
+    session.query(Game).filter(
+        Game.igdb_id.isnot(None), Game.igdb_id > 0
+    ).update({Game.updated_at: 0}, synchronize_session=False)
     session.commit()
     print("Force refresh: all updated_at set to 0.")
     return refresh_all_games_metadata(session)
