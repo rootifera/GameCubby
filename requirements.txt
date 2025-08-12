@@ -4,7 +4,7 @@ annotated-types==0.7.0
 anyio==4.10.0
 Bottleneck
 certifi==2025.8.3
-charset-normalizer==3.4.2
+charset-normalizer==3.4.3
 click==8.2.1
 coverage==7.10.2
 dnspython==2.7.0
