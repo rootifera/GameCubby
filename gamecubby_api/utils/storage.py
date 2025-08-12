@@ -147,6 +147,40 @@ async def delete_game_file(
         raise HTTPException(500, f"Deletion failed: {str(e)}") from e
 
 
+async def update_file_label(
+        db: Session,
+        file_id: int,
+        game_ref: str,
+        new_label: str
+) -> GameFile:
+    """
+    Update the human-readable label for a stored file.
+    Validations:
+      - file exists
+      - belongs to the specified game_ref
+      - new_label is non-empty after strip()
+    """
+    file_record = db.get(GameFile, file_id)
+    if not file_record:
+        raise HTTPException(404, "File not found")
+
+    if file_record.game != game_ref:
+        raise HTTPException(400, "File does not belong to specified game")
+
+    if not new_label or not new_label.strip():
+        raise HTTPException(400, "Label cannot be empty")
+
+    try:
+        file_record.label = new_label.strip()
+        db.add(file_record)
+        db.commit()
+        db.refresh(file_record)
+        return file_record
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(500, f"Update failed: {str(e)}") from e
+
+
 def sanitize_filename(filename: str) -> str:
     clean_name = Path(filename).name
     stem, suffix = Path(clean_name).stem, Path(clean_name).suffix

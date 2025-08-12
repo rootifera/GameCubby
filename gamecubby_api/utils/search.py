@@ -2,11 +2,12 @@ from fastapi import Request, HTTPException
 from sqlalchemy.sql import func
 
 from ..utils.db_tools import with_db
+from ..utils.location import get_location_path
 
 from ..models.game import Game
 from ..models.tag import Tag
 from ..models.platform import Platform
-from ..schemas.game import Game as GameSchema
+from ..schemas.game import Game as GameSchema, LocationPathItem
 from ..models.genre import Genre
 from ..models.mode import Mode
 from ..models.playerperspective import PlayerPerspective
@@ -16,13 +17,20 @@ from ..models.igdb_tag import IGDBTag
 from ..models.location import Location
 
 
+def _validate_match_mode(value: str | None, field_name: str = "match_mode") -> str:
+    mode = (value or "any").lower()
+    if mode not in {"any", "all", "exact"}:
+        raise HTTPException(status_code=422, detail=f"{field_name} must be one of: any, all, exact")
+    return mode
+
+
 def search_games_basic(request: Request) -> list[GameSchema]:
     qp = request.query_params
     name = qp.get("name")
     year = qp.get("year")
     platform_id = qp.get("platform_id")
     tag_ids = qp.getlist("tag_ids")
-    match_mode = qp.get("match_mode", "any")
+    match_mode = _validate_match_mode(qp.get("match_mode"), "match_mode")
     limit = qp.get("limit")
     offset = qp.get("offset")
 
@@ -51,7 +59,11 @@ def search_games_basic(request: Request) -> list[GameSchema]:
             if match_mode == "all":
                 for tid in tag_ids_int:
                     query = query.filter(Game.tags.any(Tag.id == tid))
-            else:
+            elif match_mode == "exact":
+                for tid in tag_ids_int:
+                    query = query.filter(Game.tags.any(Tag.id == tid))
+                query = query.filter(~Game.tags.any(~Tag.id.in_(tag_ids_int)))
+            else:  # any
                 query = query.join(Game.tags).filter(Tag.id.in_(tag_ids_int))
 
         # ORDER FIRST
@@ -68,7 +80,15 @@ def search_games_basic(request: Request) -> list[GameSchema]:
             query = query.offset(int(offset))
 
         results = query.all()
-        return [GameSchema.model_validate(g) for g in results]
+
+        # Populate location_path for each game (typed)
+        payload: list[GameSchema] = []
+        for g in results:
+            item = GameSchema.model_validate(g)
+            raw_path = get_location_path(db, g.id)  # list[dict]
+            item.location_path = [LocationPathItem(**p) for p in raw_path]
+            payload.append(item)
+        return payload
 
 
 def search_games_advanced(request: Request) -> list[GameSchema]:
@@ -80,6 +100,8 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
     year = qp.get("year")
     year_min = qp.get("year_min")
     year_max = qp.get("year_max")
+    match_mode = _validate_match_mode(qp.get("match_mode"), "match_mode")            # for tag_ids
+    igdb_match_mode = _validate_match_mode(qp.get("igdb_match_mode"), "igdb_match_mode")  # for igdb_tag_ids
 
     if year and not year.isdigit():
         raise HTTPException(status_code=422, detail="year must be a number")
@@ -139,9 +161,23 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
             if pid.isdigit():
                 query = query.filter(Game.platforms.any(Platform.id == int(pid)))
 
-        for tid in qp.getlist("tag_ids"):
-            if tid.isdigit():
-                query = query.filter(Game.tags.any(Tag.id == int(tid)))
+        # Regular tag_ids with any/all/exact
+        tag_ids = qp.getlist("tag_ids")
+        if tag_ids:
+            try:
+                tag_ids_int = [int(tid) for tid in tag_ids]
+            except ValueError:
+                raise HTTPException(status_code=422, detail="Tag IDs must be integers")
+
+            if match_mode == "all":
+                for tid in tag_ids_int:
+                    query = query.filter(Game.tags.any(Tag.id == tid))
+            elif match_mode == "exact":
+                for tid in tag_ids_int:
+                    query = query.filter(Game.tags.any(Tag.id == tid))
+                query = query.filter(~Game.tags.any(~Tag.id.in_(tag_ids_int)))
+            else:  # any
+                query = query.join(Game.tags).filter(Tag.id.in_(tag_ids_int))
 
         for gid in qp.getlist("genre_ids"):
             if gid.isdigit():
@@ -163,9 +199,23 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
             if comp.isdigit():
                 query = query.join(Game.companies).filter(Company.id == int(comp))
 
-        for itid in qp.getlist("igdb_tag_ids"):
-            if itid.isdigit():
-                query = query.filter(Game.igdb_tags.any(IGDBTag.id == int(itid)))
+        # IGDB tag IDs with any/all/exact
+        igdb_tag_ids = qp.getlist("igdb_tag_ids")
+        if igdb_tag_ids:
+            try:
+                igdb_tag_ids_int = [int(tid) for tid in igdb_tag_ids]
+            except ValueError:
+                raise HTTPException(status_code=422, detail="IGDB tag IDs must be integers")
+
+            if igdb_match_mode == "all":
+                for tid in igdb_tag_ids_int:
+                    query = query.filter(Game.igdb_tags.any(IGDBTag.id == tid))
+            elif igdb_match_mode == "exact":
+                for tid in igdb_tag_ids_int:
+                    query = query.filter(Game.igdb_tags.any(IGDBTag.id == tid))
+                query = query.filter(~Game.igdb_tags.any(~IGDBTag.id.in_(igdb_tag_ids_int)))
+            else:  # any
+                query = query.join(Game.igdb_tags).filter(IGDBTag.id.in_(igdb_tag_ids_int))
 
         if loc := qp.get("location_id"):
             if loc.isdigit():
@@ -178,7 +228,6 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
         elif include_manual == "only":
             query = query.filter(Game.igdb_id == 0)
 
-        # ✅ ORDER BEFORE LIMIT/OFFSET (fixes InvalidRequestError)
         query = query.order_by(func.lower(Game.name))
 
         lim = qp.get("limit")
@@ -189,7 +238,15 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
             query = query.offset(int(off))
 
         results = query.all()
-        return [GameSchema.model_validate(g) for g in results]
+
+        # Populate location_path for each game (typed)
+        payload: list[GameSchema] = []
+        for g in results:
+            item = GameSchema.model_validate(g)
+            raw_path = get_location_path(db, g.id)  # list[dict]
+            item.location_path = [LocationPathItem(**p) for p in raw_path]
+            payload.append(item)
+        return payload
 
 
 def search_game_name_suggestions(request: Request) -> list[str]:
