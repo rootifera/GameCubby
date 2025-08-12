@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel
+from pydantic import BaseModel, computed_field
 
 
 class FileCategory(str, Enum):
@@ -29,6 +29,11 @@ class FileCreate(BaseModel):
 
 class FileResponse(FileBase):
     id: int
+
+    @computed_field
+    @property
+    def file_id(self) -> int:  # type: ignore[override]
+        return self.id
 
     class Config:
         from_attributes = True

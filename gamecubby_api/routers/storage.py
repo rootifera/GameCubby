@@ -1,13 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, Form, File, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
+from pydantic import BaseModel, constr
+
 from ..db import get_db
 from ..models.game import Game
 from ..models.storage import GameFile
 from ..schemas.storage import FileResponse, FileCategory
 from ..utils.storage import (
     upload_and_register_file, sanitize_filename, delete_game_file,
-    sync_game_files, sync_all_files, get_downloadable_file
+    sync_game_files, sync_all_files, get_downloadable_file, update_file_label
 )
 from ..utils.auth import get_current_admin, get_current_admin_optional
 from ..utils.app_config import get_app_config_value
@@ -173,3 +175,42 @@ async def download_file(
         return get_downloadable_file(db, file_id)
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+# ---------------------------
+# Update file label endpoint
+# ---------------------------
+
+class LabelUpdate(BaseModel):
+    label: constr(strip_whitespace=True, min_length=1)
+
+
+@router.patch("/{file_id}/label", response_model=FileResponse)
+async def patch_file_label(
+    game_id: int,
+    file_id: int,
+    payload: LabelUpdate,
+    db: Session = Depends(get_db),
+    admin = Depends(get_current_admin),
+) -> FileResponse:
+    """
+    Update a file's human-readable label.
+
+    Request body:
+        { "label": "New label" }
+
+    Returns the updated file record.
+    """
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(status_code=404, detail="Game not found")
+
+    game_ref = str(game.igdb_id) if game.igdb_id else "".join(c for c in game.name.lower() if c.isalnum())
+
+    try:
+        updated = await update_file_label(db, file_id, game_ref, payload.label)
+        return updated
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Update failed: {str(e)}")

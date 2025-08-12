@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict
+from typing import Optional, List
 from .platform import Platform
 from .tag import Tag
 from .collection import Collection
@@ -26,6 +26,14 @@ class GameCompany(BaseModel):
         from_attributes = True
 
 
+class LocationPathItem(BaseModel):
+    id: int
+    name: str
+
+    class Config:
+        from_attributes = True
+
+
 class Game(BaseModel):
     id: int
     igdb_id: int
@@ -34,18 +42,18 @@ class Game(BaseModel):
     release_date: Optional[int]
     cover_url: Optional[str]
     condition: Optional[int]
-    location_path: List[Dict[str, str]] = Field(default=[])
+    location_path: List[LocationPathItem] = Field(default_factory=list)
     order: Optional[int]
     rating: Optional[int] = None
     updated_at: Optional[int] = None
-    platforms: List[Platform] = []
-    tags: List[Tag] = []
+    platforms: List[Platform] = Field(default_factory=list)
+    tags: List[Tag] = Field(default_factory=list)
     collection: Optional[Collection] = None
-    modes: list[Mode] = []
-    genres: list[Genre] = []
-    playerperspectives: list[PlayerPerspective] = []
-    igdb_tags: list[IGDBTagSchema] = []
-    companies: list[GameCompany] = []
+    modes: List[Mode] = Field(default_factory=list)
+    genres: List[Genre] = Field(default_factory=list)
+    playerperspectives: List[PlayerPerspective] = Field(default_factory=list)
+    igdb_tags: List[IGDBTagSchema] = Field(default_factory=list)
+    companies: List[GameCompany] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
@@ -59,14 +67,14 @@ class GameCreate(BaseModel):
     condition: Optional[int] = None
     location_id: Optional[int] = None
     order: Optional[int] = None
-    mode_ids: Optional[List[int]] = []
-    platform_ids: Optional[List[int]] = []
-    genre_ids: Optional[List[int]] = []
-    player_perspective_ids: Optional[List[int]] = []
+    mode_ids: Optional[List[int]] = Field(default_factory=list)
+    platform_ids: Optional[List[int]] = Field(default_factory=list)
+    genre_ids: Optional[List[int]] = Field(default_factory=list)
+    player_perspective_ids: Optional[List[int]] = Field(default_factory=list)
     rating: Optional[int] = None
     collection_id: Optional[int] = None
-    tag_ids: Optional[List[int]] = []
-    company_ids: Optional[List[int]] = []
+    tag_ids: Optional[List[int]] = Field(default_factory=list)
+    company_ids: Optional[List[int]] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
@@ -94,7 +102,7 @@ class AddGameFromIGDBRequest(BaseModel):
     igdb_id: int
     platform_ids: list[int]
     location_id: int | None = None
-    tag_ids: list[int] = []
+    tag_ids: list[int] = Field(default_factory=list)
     condition: int | None = None
     order: int | None = None
 
@@ -113,7 +121,7 @@ class GamePreview(BaseModel):
     cover_url: Optional[str] = None
     release_date: Optional[int] = None
     summary: Optional[str] = None
-    platforms: List[PlatformPreview] = []
+    platforms: List[PlatformPreview] = Field(default_factory=list)
 
     class Config:
         from_attributes = True
