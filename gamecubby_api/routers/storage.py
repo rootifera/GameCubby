@@ -176,11 +176,6 @@ async def download_file(
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-
-# ---------------------------
-# Update file label endpoint
-# ---------------------------
-
 class LabelUpdate(BaseModel):
     label: constr(strip_whitespace=True, min_length=1)
 

@@ -16,11 +16,12 @@ from ..models.platform import Platform
 from ..models.genre import Genre
 from ..utils.igdb_tag import upsert_igdb_tags
 from sqlalchemy.orm import selectinload
+from sqlalchemy import func
 from ..models.playerperspective import PlayerPerspective
 from ..models.company import Company
 from ..models.game_company import GameCompany
 from ..utils.external import get_igdb_token, _get_igdb_credentials
-from typing import List, Optional, cast, Dict, Tuple
+from typing import List, Optional, cast, Dict, Tuple, Union
 import asyncio
 import os
 import httpx
@@ -98,7 +99,7 @@ def create_game(session: Session, game_data: dict) -> Game:
     platform_ids = game_data.pop("platform_ids", [])
     genre_ids = game_data.pop("genre_ids", [])
     perspective_ids = game_data.pop("player_perspective_ids", [])
-    tag_ids = game_data.pop("tag_ids", [])
+    tag_inputs = game_data.pop("tag_ids", [])  # can be IDs or names
     collection_id = game_data.pop("collection_id", None)
     company_ids = game_data.pop("company_ids", [])
 
@@ -121,8 +122,29 @@ def create_game(session: Session, game_data: dict) -> Game:
     if perspective_ids:
         game.playerperspectives = session.query(PlayerPerspective).filter(
             PlayerPerspective.id.in_(perspective_ids)).all()
-    if tag_ids:
-        game.tags = session.query(Tag).filter(Tag.id.in_(tag_ids)).all()
+
+    # Tag handling (create on the fly if needed) + de-dup
+    if tag_inputs:
+        tags_by_id: dict[int, Tag] = {}
+        for t in tag_inputs:
+            tag_obj: Optional[Tag] = None
+            if isinstance(t, int) or (isinstance(t, str) and t.isdigit()):
+                tag_obj = session.query(Tag).filter_by(id=int(t)).first()
+            elif isinstance(t, str):
+                tag_name = t.strip()
+                if not tag_name:
+                    continue
+                tag_obj = session.query(Tag).filter(
+                    func.lower(Tag.name) == tag_name.lower()
+                ).first()
+                if not tag_obj:
+                    tag_obj = Tag(name=tag_name)
+                    session.add(tag_obj)
+                    session.flush()  # get ID without committing yet
+            if tag_obj:
+                tags_by_id[tag_obj.id] = tag_obj
+        game.tags = list(tags_by_id.values())
+
     if company_ids:
         companies = session.query(Company).filter(Company.id.in_(company_ids)).all()
         game.companies = [GameCompany(company=c) for c in companies]
@@ -166,9 +188,28 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
             PlayerPerspective.id.in_(perspective_ids)
         ).all()
 
-    tag_ids = update_data.pop("tag_ids", None)
-    if tag_ids is not None:
-        game.tags = session.query(Tag).filter(Tag.id.in_(tag_ids)).all()
+    tag_ids_or_names = update_data.pop("tag_ids", None)
+    if tag_ids_or_names is not None:
+        tags_by_id: dict[int, Tag] = {}
+        for tag_item in tag_ids_or_names:
+            tag_obj: Optional[Tag] = None
+            if isinstance(tag_item, int) or (isinstance(tag_item, str) and tag_item.isdigit()):
+                tag_obj = session.query(Tag).filter_by(id=int(tag_item)).first()
+            elif isinstance(tag_item, str):
+                tag_name = tag_item.strip()
+                if not tag_name:
+                    continue
+                # Exact, case-insensitive match (consistent with create_game)
+                tag_obj = session.query(Tag).filter(
+                    func.lower(Tag.name) == tag_name.lower()
+                ).first()
+                if not tag_obj:
+                    tag_obj = Tag(name=tag_name)
+                    session.add(tag_obj)
+                    session.flush()  # get tag.id without full commit
+            if tag_obj:
+                tags_by_id[tag_obj.id] = tag_obj
+        game.tags = list(tags_by_id.values())
 
     collection_id = update_data.pop("collection_id", None)
     if collection_id is not None:
@@ -255,13 +296,13 @@ def upsert_collection(session: Session, collection_obj: Dict) -> Collection:
 
 
 async def add_game_from_igdb(
-        session: Session,
-        igdb_id: int,
-        platform_ids: list[int],
-        location_id: Optional[int] = None,
-        tag_ids: list[int] = [],
-        condition: Optional[int] = None,
-        order: Optional[int] = None
+    session: Session,
+    igdb_id: int,
+    platform_ids: list[int],
+    location_id: Optional[int] = None,
+    tag_ids: list[Union[int, str]] = [],
+    condition: Optional[int] = None,
+    order: Optional[int] = None
 ) -> Optional[Game]:
     raw = await fetch_igdb_game(igdb_id)
     if not raw:
@@ -363,10 +404,26 @@ async def add_game_from_igdb(
         if platform and platform not in game.platforms:
             game.platforms.append(platform)
 
-    for tag_id in tag_ids:
-        tag = session.query(Tag).filter_by(id=tag_id).first()
-        if tag and tag not in game.tags:
-            game.tags.append(tag)
+    # Updated tag handling: accept IDs or names + de-dup
+    tags_by_id: dict[int, Tag] = {}
+    for tag_val in tag_ids:
+        tag_obj: Optional[Tag] = None
+        if isinstance(tag_val, int) or (isinstance(tag_val, str) and tag_val.isdigit()):
+            tag_obj = session.query(Tag).filter_by(id=int(tag_val)).first()
+        elif isinstance(tag_val, str):
+            tag_name = tag_val.strip()
+            if tag_name:
+                tag_obj = session.query(Tag).filter(
+                    func.lower(Tag.name) == tag_name.lower()
+                ).first()
+                if not tag_obj:
+                    tag_obj = Tag(name=tag_name)
+                    session.add(tag_obj)
+                    session.flush()
+        if tag_obj:
+            tags_by_id[tag_obj.id] = tag_obj
+    if tags_by_id:
+        game.tags.extend([t for t in tags_by_id.values() if t not in game.tags])
 
     for p_id in raw.get("player_perspectives", []):
         perspective = session.query(PlayerPerspective).filter_by(id=p_id).first()
