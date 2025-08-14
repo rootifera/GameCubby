@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional, List
+from typing import Optional, List, Union
 from .platform import Platform
 from .tag import Tag
 from .collection import Collection
@@ -73,7 +73,7 @@ class GameCreate(BaseModel):
     player_perspective_ids: Optional[List[int]] = Field(default_factory=list)
     rating: Optional[int] = None
     collection_id: Optional[int] = None
-    tag_ids: Optional[List[int]] = Field(default_factory=list)
+    tag_ids: Optional[List[Union[int, str]]] = Field(default_factory=list)
     company_ids: Optional[List[int]] = Field(default_factory=list)
 
     class Config:
@@ -93,7 +93,7 @@ class GameUpdate(BaseModel):
     genre_ids: Optional[List[int]] = None
     player_perspective_ids: Optional[List[int]] = None
     rating: Optional[int] = None
-    tag_ids: Optional[List[int]] = None
+    tag_ids: Optional[List[Union[int, str]]] = None
     collection_id: Optional[int] = None
     company_ids: Optional[List[int]] = None
 
@@ -102,7 +102,7 @@ class AddGameFromIGDBRequest(BaseModel):
     igdb_id: int
     platform_ids: list[int]
     location_id: int | None = None
-    tag_ids: list[int] = Field(default_factory=list)
+    tag_ids: list[Union[int, str]] = Field(default_factory=list)  # <-- changed here
     condition: int | None = None
     order: int | None = None
 
