@@ -160,10 +160,10 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
         return None
 
     if game.igdb_id != 0:
-        allowed_fields = {"location_id", "order", "condition", "tag_ids"}
+        allowed_fields = {"location_id", "order", "condition", "tag_ids", "platform_ids"}
         non_null_keys = {k for k, v in update_data.items() if v is not None}
         if not non_null_keys.issubset(allowed_fields):
-            raise ValueError("Cannot update IGDB-sourced games except condition/location/order/tags")
+            raise ValueError("Cannot update IGDB-sourced games except condition/location/order/tags/platforms")
 
     update_data.pop("igdb_id", None)
 
@@ -206,7 +206,7 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
                 if not tag_obj:
                     tag_obj = Tag(name=tag_name)
                     session.add(tag_obj)
-                    session.flush()  # get tag.id without full commit
+                    session.flush()
             if tag_obj:
                 tags_by_id[tag_obj.id] = tag_obj
         game.tags = list(tags_by_id.values())
@@ -226,6 +226,7 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
 
     session.commit()
     return game
+
 
 
 def delete_game(session: Session, game_id: int) -> bool:

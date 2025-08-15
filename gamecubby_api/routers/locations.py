@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..schemas.location import Location as LocationSchema
@@ -8,6 +8,7 @@ from ..utils.location import (
     list_top_locations,
     list_child_locations,
     list_all_locations,
+    delete_location,  # <-- added
 )
 from ..utils.auth import get_current_admin
 
@@ -46,3 +47,19 @@ def get_single_location(location_id: int, db: Session = Depends(get_db)):
     if not location:
         raise HTTPException(status_code=404, detail="Location not found")
     return location
+
+
+@router.delete("/{location_id}", status_code=204, dependencies=[Depends(get_current_admin)])
+def remove_location(location_id: int, db: Session = Depends(get_db)):
+    location = get_location(db, location_id)
+    if not location:
+        raise HTTPException(status_code=404, detail="Location not found")
+
+    ok = delete_location(db, location_id)
+    if not ok:
+        raise HTTPException(
+            status_code=400,
+            detail="Location cannot be deleted: it has child locations or games assigned."
+        )
+
+    return Response(status_code=204)
