@@ -60,3 +60,31 @@ def get_location_path(session: Session, game_id: int) -> list[dict]:
 def get_default_location_id(session: Session) -> Optional[int]:
     default = session.query(Location).filter_by(name="Default Storage").first()
     return default.id if default else None
+
+
+def delete_location(session: Session, location_id: int) -> bool:
+    """
+    Delete a location ONLY if:
+      - it exists,
+      - it has NO child locations,
+      - and NO games are assigned to it.
+
+    Returns:
+        True  -> deleted
+        False -> not deleted (doesn't exist, has children, or has games)
+    """
+    loc = session.query(Location).filter_by(id=location_id).first()
+    if not loc:
+        return False
+
+    has_children = session.query(Location.id).filter_by(parent_id=location_id).first() is not None
+    if has_children:
+        return False
+
+    has_games = session.query(Game.id).filter_by(location_id=location_id).first() is not None
+    if has_games:
+        return False
+
+    session.delete(loc)
+    session.commit()
+    return True
