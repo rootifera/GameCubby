@@ -83,28 +83,13 @@ async def upload_file(
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
-@router.delete('/{file_id}', status_code=204)
+@router.delete("/{file_id}", status_code=204)
 async def delete_file(
-        game_id: int,
-        file_id: int,
-        db: Session = Depends(get_db),
-        admin=Depends(get_current_admin)
+    file_id: int,
+    db: Session = Depends(get_db),
+    admin=Depends(get_current_admin),
 ) -> None:
-    game = db.get(Game, game_id)
-    if not game:
-        raise HTTPException(status_code=404, detail="Game not found")
-
-    game_ref = str(game.igdb_id) if game.igdb_id else "".join(c for c in game.name.lower() if c.isalnum())
-
-    try:
-        await delete_game_file(db, file_id, game_ref)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=404 if "not found" in str(e).lower() else 400,
-            detail=str(e)
-        )
-    except RuntimeError as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    await delete_game_file(db, file_id)
 
 
 @router.post("/sync-files", response_model=dict)

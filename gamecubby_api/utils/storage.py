@@ -124,24 +124,19 @@ async def upload_and_register_file(
 async def delete_game_file(
         db: Session,
         file_id: int,
-        game_ref: str
 ) -> None:
     file_record = db.get(GameFile, file_id)
     if not file_record:
         raise HTTPException(404, "File not found")
 
-    if file_record.game != game_ref:
-        raise HTTPException(400, "File does not belong to specified game")
-
     file_path = Path(file_record.path)
 
     try:
-        if file_path.exists():
-            file_path.unlink(missing_ok=True)
+        if file_path.is_file():
+            file_path.unlink()
 
         db.delete(file_record)
         db.commit()
-
     except Exception as e:
         db.rollback()
         raise HTTPException(500, f"Deletion failed: {str(e)}") from e
