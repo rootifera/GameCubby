@@ -21,7 +21,7 @@ services:
 
   gamecubby-api:
     container_name: gamecubby-api
-    image: rootifera/gamecubby-api:v1.0
+    image: rootifera/gamecubby-api:v1.1
     build:
       context: .
       dockerfile: gamecubby_api/Dockerfile
