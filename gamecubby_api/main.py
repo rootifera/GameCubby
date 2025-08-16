@@ -90,7 +90,7 @@ app.include_router(stats_router)
 def read_root():
     return {
         "app_name": "GameCubby API",
-        "version": "1.0",
+        "version": "1.1",
         "build_name": "Guybrush Threepwood",
-        "build_time": 1754172029
+        "build_time": 1755356872
     }
