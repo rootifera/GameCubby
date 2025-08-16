@@ -534,11 +534,9 @@ def refresh_all_games_metadata(session: Session) -> Dict[str, int]:
         asyncio.set_event_loop(loop)
         for game in games:
             try:
-                # call + rate-limit
                 async def do_refresh():
                     result = await refresh_game_metadata(session, game.id)
-                    # sleep between calls to avoid hammering API
-                    await asyncio.sleep(1.0)   # ← adjust (1.0s = one call per second)
+                    await asyncio.sleep(1.0)
                     return result
 
                 _, did_update, msg = loop.run_until_complete(do_refresh())
