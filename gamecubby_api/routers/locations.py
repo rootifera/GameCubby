@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response, Body
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..schemas.location import Location as LocationSchema
@@ -8,7 +8,7 @@ from ..utils.location import (
     list_top_locations,
     list_child_locations,
     list_all_locations,
-    delete_location,  # <-- added
+    delete_location, rename_location,  # <-- added
 )
 from ..utils.auth import get_current_admin
 
@@ -63,3 +63,22 @@ def remove_location(location_id: int, db: Session = Depends(get_db)):
         )
 
     return Response(status_code=204)
+
+
+@router.put("/{location_id}/rename", response_model=LocationSchema, dependencies=[Depends(get_current_admin)])
+def rename_location_endpoint(
+    location_id: int,
+    name: str = Body(..., embed=True),
+    db: Session = Depends(get_db),
+):
+    loc = get_location(db, location_id)
+    if not loc:
+        raise HTTPException(status_code=404, detail="Location not found")
+
+    try:
+        updated = rename_location(db, location_id, name)
+        if not updated:
+            raise HTTPException(status_code=404, detail="Location not found")
+        return updated
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
