@@ -88,3 +88,22 @@ def delete_location(session: Session, location_id: int) -> bool:
     session.delete(loc)
     session.commit()
     return True
+
+
+def rename_location(session: Session, location_id: int, new_name: str) -> Optional[Location]:
+    """
+    Rename a location (name only). Returns the updated Location or None if not found.
+    Raises ValueError if new_name is empty/whitespace.
+    """
+    loc = session.query(Location).filter_by(id=location_id).first()
+    if not loc:
+        return None
+
+    clean = (new_name or "").strip()
+    if not clean:
+        raise ValueError("Location name cannot be empty")
+
+    loc.name = clean
+    session.commit()
+    session.refresh(loc)
+    return loc
