@@ -39,5 +39,22 @@ services:
     command: >
       bash -c "alembic upgrade head && uvicorn gamecubby_api.main:app --host 0.0.0.0 --reload"
 
+  gamecubby-web:
+    container_name: gamecubby-web
+    image: rootifera/gamecubby-web:v1.1
+    restart: on-failure
+    depends_on:
+      gamecubby-api:
+        condition: service_started
+    environment:
+      NODE_ENV: development
+      NEXT_TELEMETRY_DISABLED: "1"
+      HOSTNAME: 0.0.0.0
+      PORT: "3000"
+      NEXT_PUBLIC_APP_URL: "https://gamecubby.rootifera.xyz"
+      NEXT_PUBLIC_API_BASE_URL: "http://gamecubby-api:8000"
+    ports:
+      - "3000:3000"
+
 volumes:
   gamecubby_db_data:
