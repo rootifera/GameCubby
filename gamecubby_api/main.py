@@ -92,5 +92,5 @@ def read_root():
         "app_name": "GameCubby API",
         "version": "1.1",
         "build_name": "Guybrush Threepwood",
-        "build_time": 1755356872
+        "build_time": 1755523354
     }
