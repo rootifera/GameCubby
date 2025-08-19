@@ -199,7 +199,6 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
                 tag_name = tag_item.strip()
                 if not tag_name:
                     continue
-                # Exact, case-insensitive match (consistent with create_game)
                 tag_obj = session.query(Tag).filter(
                     func.lower(Tag.name) == tag_name.lower()
                 ).first()
@@ -217,15 +216,39 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
 
     company_ids = update_data.pop("company_ids", None)
     if company_ids is not None:
+        existing_by_cid: dict[int, GameCompany] = {gc.company_id: gc for gc in game.companies}
         companies = session.query(Company).filter(Company.id.in_(company_ids)).all()
-        game.companies = [GameCompany(company=c) for c in companies]
+        new_links: list[GameCompany] = []
+        for c in companies:
+            if c.id in existing_by_cid:
+                new_links.append(existing_by_cid[c.id])  # keep existing flags
+            else:
+                new_links.append(
+                    GameCompany(
+                        company=c,
+                        developer=False,
+                        publisher=False,
+                        porting=False,
+                        supporting=False,
+                    )
+                )
+        game.companies = new_links
 
     for key, value in update_data.items():
         if value is not None:
             setattr(game, key, value)
 
     session.commit()
+    session.refresh(game)
+
+    for link in getattr(game, "companies", []) or []:
+        link.developer = bool(link.developer)
+        link.publisher = bool(link.publisher)
+        link.porting = bool(link.porting)
+        link.supporting = bool(link.supporting)
+
     return game
+
 
 
 
