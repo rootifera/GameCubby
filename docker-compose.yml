@@ -21,7 +21,7 @@ services:
 
   gamecubby-api:
     container_name: gamecubby-api
-    image: rootifera/gamecubby-api:v1.1
+    image: rootifera/gamecubby-api:sentinel
     build:
       context: .
       dockerfile: gamecubby_api/Dockerfile
@@ -36,25 +36,29 @@ services:
     volumes:
       - ./:/app
       - ./gamecubby_api/storage:/app/gamecubby_api/storage
+      - ./storage:/storage
     command: >
       bash -c "alembic upgrade head && uvicorn gamecubby_api.main:app --host 0.0.0.0 --reload"
 
   gamecubby-web:
     container_name: gamecubby-web
-    image: rootifera/gamecubby-web:v1.1
+    image: rootifera/gamecubby-web:sentinel
     restart: on-failure
     depends_on:
       gamecubby-api:
         condition: service_started
+    env_file:
+      - .env
     environment:
       NODE_ENV: development
       NEXT_TELEMETRY_DISABLED: "1"
       HOSTNAME: 0.0.0.0
       PORT: "3000"
-      NEXT_PUBLIC_APP_URL: "https://gamecubby.rootifera.xyz"
       NEXT_PUBLIC_API_BASE_URL: "http://gamecubby-api:8000"
     ports:
       - "3000:3000"
+    volumes:
+      - ./storage:/storage
 
 volumes:
   gamecubby_db_data:

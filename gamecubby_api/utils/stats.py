@@ -74,85 +74,67 @@ def _company_id(gc: GameCompany) -> Optional[int]:
 # HEALTH (cached facade + computation)
 # --------------------------------------------------------
 
-def compute_health_stats(db: Session, *, dedupe: str = "title") -> Dict[str, int]:
+def compute_health_stats(db: Session, *, dedupe: str = "ignored") -> Dict[str, int]:
     """
-    Library health metrics.
+    Health metrics with mixed dedupe:
+      - Issue counters (missing cover/year, no platforms/location, untagged): **per row**
+      - Totals: total_games (rows) and total_games_unique (titles via IGDB/manual key)
 
-    dedupe='title' (default): group copies by IGDB id (igdb_id != 0). Manual entries
-                              (igdb_id == 0 or None) count as their own titles.
-    dedupe='none':            count each DB row independently.
+    Note: 'dedupe' arg kept for compatibility but ignored.
     """
-    dedupe = _validate_dedupe(dedupe)
-
     games = (
         db.query(Game)
         .options(
-            joinedload(Game.platforms),   # avoid N+1
-            joinedload(Game.tags),        # avoid N+1
+            joinedload(Game.platforms),
+            joinedload(Game.tags),
         )
         .all()
     )
-    total_rows = len(games)
 
-    if dedupe == "none":
-        missing_cover = sum(1 for g in games if not (g.cover_url and str(g.cover_url).strip()))
-        missing_release_year = sum(1 for g in games if not (isinstance(g.release_date, int) and g.release_date > 0))
-        no_platforms = sum(1 for g in games if not getattr(g, "platforms", []))
-        no_location = sum(1 for g in games if not g.location_id)
-        untagged = sum(1 for g in games if not getattr(g, "tags", []))
-        return {
-            "missing_cover": missing_cover,
-            "missing_release_year": missing_release_year,
-            "no_platforms": no_platforms,
-            "no_location": no_location,
-            "untagged": untagged,
-            "total_games_unique": total_rows,  # no dedupe => titles == rows
-            "total_games": total_rows,
-        }
+    missing_cover = 0
+    missing_release_year = 0
+    no_platforms = 0
+    no_location = 0
+    untagged = 0
 
-    # dedupe == 'title'
-    agg: Dict[Tuple[str, int], Dict[str, bool]] = {}
     for g in games:
-        key = _title_key(g)
-        a = agg.setdefault(key, {
-            "has_cover": False,
-            "has_year": False,
-            "has_platforms": False,
-            "has_location": False,
-            "has_tags": False,
-        })
-        if g.cover_url and str(g.cover_url).strip():
-            a["has_cover"] = True
-        if isinstance(g.release_date, int) and g.release_date > 0:
-            a["has_year"] = True
-        if getattr(g, "platforms", []):
-            a["has_platforms"] = True
-        if g.location_id:
-            a["has_location"] = True
-        if getattr(g, "tags", []):
-            a["has_tags"] = True
+        if not (g.cover_url and str(g.cover_url).strip()):
+            missing_cover += 1
+        if not (isinstance(g.release_date, int) and g.release_date > 0):
+            missing_release_year += 1
+        if not getattr(g, "platforms", []):
+            no_platforms += 1
+        if not g.location_id or g.location_id == 1:# if you want default location to count remove or g.location_id == 1
+            no_location += 1
+        if not getattr(g, "tags", []):
+            untagged += 1
 
-    total_titles = len(agg)
+    total_rows = len(games)
+    total_titles = len({_title_key(g) for g in games})
+
     return {
-        "missing_cover": sum(1 for a in agg.values() if not a["has_cover"]),
-        "missing_release_year": sum(1 for a in agg.values() if not a["has_year"]),
-        "no_platforms": sum(1 for a in agg.values() if not a["has_platforms"]),
-        "no_location": sum(1 for a in agg.values() if not a["has_location"]),
-        "untagged": sum(1 for a in agg.values() if not a["has_tags"]),
-        "total_games_unique": total_titles,
-        "total_games": total_rows,
+        "missing_cover": missing_cover,
+        "missing_release_year": missing_release_year,
+        "no_platforms": no_platforms,
+        "no_location": no_location,
+        "untagged": untagged,
+        "total_games_unique": total_titles,  # title-deduped
+        "total_games": total_rows,           # raw rows
     }
+
 
 def get_health_stats(db: Session, *, use_cache: bool = True) -> Dict[str, int]:
     """
     Cached facade for health stats (5m TTL).
+    Mixed dedupe: issues per-row, totals per-title.
     """
+    cache_key = "health"
     if use_cache:
-        cached = _get_cached("health")
+        cached = _get_cached(cache_key)
         if cached is not None:
             return cached
-    data = compute_health_stats(db, dedupe="title")
-    _set_cached("health", data)
+    data = compute_health_stats(db)  # dedupe ignored inside
+    _set_cached(cache_key, data)
     return data
 
 

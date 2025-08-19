@@ -10,13 +10,19 @@ load_dotenv()
 
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from .utils.playerperspective import sync_player_perspectives
 from .utils.mode import sync_modes
 from .utils.genre import sync_genres
 from .utils.storage import ensure_game_folders
 from .utils.location import create_location, list_all_locations
+
+from .utils.maintenance import (
+    is_maintenance_enabled,
+    allowed_in_maintenance,
+)
 
 from .routers import igdb
 from .routers.tags import router as tags_router
@@ -38,32 +44,68 @@ from .routers.setup import router as setup_router
 from .routers.export import router as export_router
 from .routers.backups import router as backups_router
 from .routers.stats import router as stats_router
+from .routers.maintenance import router as maintenance_router
 
 from .utils.db_tools import with_db
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """
+    Startup tasks, but skip DB work entirely if maintenance mode is enabled.
+    """
     ensure_game_folders(autocreate_all=True)
 
-    with with_db() as db:
-        try:
-            if not list_all_locations(db):
-                print("[Startup] No locations found. Creating 'Default Storage' root.")
-                create_location(db, name="Default Storage", parent_id=None, type="root")
+    if not is_maintenance_enabled():
+        with with_db() as db:
+            try:
+                if not list_all_locations(db):
+                    print("[Startup] No locations found. Creating 'Default Storage' root.")
+                    create_location(db, name="Default Storage", parent_id=None, type="root")
 
-            if get_app_config_value(db, "is_firstrun_done") == "true":
-                await sync_player_perspectives(db)
-                await sync_modes(db)
-                await sync_genres(db)
+                if get_app_config_value(db, "is_firstrun_done") == "true":
+                    await sync_player_perspectives(db)
+                    await sync_modes(db)
+                    await sync_genres(db)
 
-        except Exception as e:
-            print(f"[Startup Sync Warning] Failed: {e}")
+            except Exception as e:
+                print(f"[Startup Sync Warning] Failed: {e}")
+    else:
+        print("[Startup] Maintenance enabled — skipping DB initialization.")
 
     yield
 
 
 app = FastAPI(lifespan=lifespan)
+
+# ----------------------------
+# Maintenance middleware gate
+# ----------------------------
+# Blocks everything while maintenance is ON, except an allow-list.
+# The default allow-list in utils.maintenance includes:
+#   - /admin/maintenance/...
+#   - /health
+
+@app.middleware("http")
+async def maintenance_gate(request: Request, call_next):
+    path = request.url.path
+
+    if allowed_in_maintenance(path):
+        return await call_next(request)
+
+    if is_maintenance_enabled():
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": "Maintenance in progress",
+                "path": path,
+                "hint": "Only /admin/maintenance/* and /health are available during maintenance.",
+            },
+            headers={"Retry-After": "60"},
+        )
+
+    return await call_next(request)
+
 
 app.include_router(auth_router)
 app.include_router(appconfig_router)
@@ -85,6 +127,12 @@ app.include_router(downloads_router)
 app.include_router(export_router)
 app.include_router(backups_router)
 app.include_router(stats_router)
+app.include_router(maintenance_router)
+
+@app.get("/health")
+def health():
+    return {"ok": True, "service": "GameCubby API", "maintenance": is_maintenance_enabled()}
+
 
 @app.get("/")
 def read_root():
@@ -92,5 +140,5 @@ def read_root():
         "app_name": "GameCubby API",
         "version": "1.1",
         "build_name": "Guybrush Threepwood",
-        "build_time": 1755356872
+        "build_time": 1755523354
     }
