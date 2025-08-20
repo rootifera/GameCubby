@@ -28,7 +28,10 @@ def read_tag(tag_id: int, db: Session = Depends(get_db)):
 
 @router.delete("/{tag_id}")
 def remove_tag(tag_id: int, db: Session = Depends(get_db), admin=Depends(get_current_admin)):
-    deleted = delete_tag(db, tag_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Tag not found")
+    """
+    Delete a tag and return 200 on success.
+    NOTE: services.delete_tag raises 404 internally if the tag doesn't exist,
+    so we don't need to check its return value.
+    """
+    delete_tag(db, tag_id)
     return {"message": "Tag deleted successfully."}
