@@ -1,7 +1,9 @@
+import json
 import logging
 import asyncio
 import os
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from .utils.app_config import get_app_config_value
 
@@ -141,6 +143,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(lifespan=lifespan)
 
+
 @app.middleware("http")
 async def maintenance_gate(request: Request, call_next):
     path = request.url.path
@@ -184,16 +187,25 @@ app.include_router(backups_router)
 app.include_router(stats_router)
 app.include_router(maintenance_router)
 
+
 @app.get("/health")
 def health():
     return {"ok": True, "service": "GameCubby API", "maintenance": is_maintenance_enabled()}
 
 
+_version_path = Path(__file__).with_name("version.json")
+try:
+    with open(_version_path, "r", encoding="utf-8") as f:
+        _version_info = json.load(f)
+except Exception:
+    _version_info = {
+        "app_name": "GameCubby API",
+        "version": "unknown",
+        "build_name": "unknown",
+        "build_time": 0,
+    }
+
+
 @app.get("/")
 def read_root():
-    return {
-        "app_name": "GameCubby API",
-        "version": "1.1",
-        "build_name": "Guybrush Threepwood",
-        "build_time": 1755523354
-    }
+    return _version_info
