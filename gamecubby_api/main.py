@@ -1,4 +1,7 @@
 import logging
+import asyncio
+import os
+from datetime import datetime, timedelta
 
 from .utils.app_config import get_app_config_value
 
@@ -23,6 +26,8 @@ from .utils.maintenance import (
     is_maintenance_enabled,
     allowed_in_maintenance,
 )
+
+from .utils.backup import save_backup_to_disk, prune_old_backups
 
 from .routers import igdb
 from .routers.tags import router as tags_router
@@ -49,10 +54,18 @@ from .routers.maintenance import router as maintenance_router
 from .utils.db_tools import with_db
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    return str(v).strip().lower() in {"1", "true", "yes", "on"}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     Startup tasks, but skip DB work entirely if maintenance mode is enabled.
+    Also optionally runs a daily auto-backup loop if AUTOBACKUPS=yes.
     """
     ensure_game_folders(autocreate_all=True)
 
@@ -73,18 +86,60 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     else:
         print("[Startup] Maintenance enabled — skipping DB initialization.")
 
+    stop_event = asyncio.Event()
+
+    async def backup_loop() -> None:
+        if not _env_bool("AUTOBACKUPS", False):
+            return
+        bt = (os.getenv("BACKUP_TIME", "03:00") or "03:00").strip()
+        try:
+            hh_str, mm_str = bt.split(":", 1)
+            hh, mm = int(hh_str), int(mm_str)
+            if not (0 <= hh <= 23 and 0 <= mm <= 59):
+                raise ValueError
+        except Exception:
+            print(f"[autobackup] Invalid BACKUP_TIME='{bt}', defaulting to 03:00")
+            hh, mm = 3, 0
+
+        try:
+            retention_days = int(os.getenv("BACKUP_RETENTION_DAYS", "14") or "14")
+        except Exception:
+            retention_days = 14
+
+        print(f"[autobackup] enabled: time={hh:02d}:{mm:02d} retention={retention_days}d")
+
+        while not stop_event.is_set():
+            now = datetime.now()
+            target = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+            if target <= now:
+                target += timedelta(days=1)
+            sleep_s = max(0.0, (target - now).total_seconds())
+
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=sleep_s)
+                break
+            except asyncio.TimeoutError:
+                pass
+
+            try:
+                fpath = save_backup_to_disk()
+                prune_old_backups(retention_days)
+                print(f"[autobackup] backup saved: {fpath}")
+            except Exception as e:
+                print(f"[autobackup] backup failed: {e}")
+
+    backup_task = asyncio.create_task(backup_loop())
+
     yield
+
+    stop_event.set()
+    try:
+        await backup_task
+    except Exception:
+        pass
 
 
 app = FastAPI(lifespan=lifespan)
-
-# ----------------------------
-# Maintenance middleware gate
-# ----------------------------
-# Blocks everything while maintenance is ON, except an allow-list.
-# The default allow-list in utils.maintenance includes:
-#   - /admin/maintenance/...
-#   - /health
 
 @app.middleware("http")
 async def maintenance_gate(request: Request, call_next):
