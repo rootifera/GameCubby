@@ -262,8 +262,10 @@ def get_overview_stats(db: Session, *, use_cache: bool = True) -> Dict[str, obje
                 "rating": round(avg, 2),
             })
     top_highest_rated = sorted(rated_titles, key=lambda x: (-x["rating"], x["name"]))[:10]
-    top_lowest_rated = sorted(rated_titles, key=lambda x: (x["rating"], x["name"]))[:10]
-
+    top_lowest_rated = sorted(
+        [r for r in rated_titles if r["rating"] > 0],
+        key=lambda x: (x["rating"], x["name"])
+    )[:10]
     payload = {
         "total_games": total_games,
         "total_games_unique": total_games_unique,
