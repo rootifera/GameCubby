@@ -24,6 +24,8 @@ _CACHE_TTL_SECONDS = 300  # 5 minutes
 _CACHE: Dict[str, Dict[str, object]] = {
     "overview": {"ts": 0.0, "data": None},
     "health": {"ts": 0.0, "data": None},
+    # New: holds per-issue game ID lists computed alongside "health"
+    "health_ids": {"ts": 0.0, "data": None},
 }
 
 def _get_cached(name: str) -> Optional[dict]:
@@ -81,6 +83,9 @@ def compute_health_stats(db: Session, *, dedupe: str = "ignored") -> Dict[str, i
       - Totals: total_games (rows) and total_games_unique (titles via IGDB/manual key)
 
     Note: 'dedupe' arg kept for compatibility but ignored.
+
+    Side-effect: also populates the "health_ids" cache with per-issue game ID lists
+    so other endpoints can return exact game IDs without re-walking the DB.
     """
     games = (
         db.query(Game)
@@ -91,6 +96,16 @@ def compute_health_stats(db: Session, *, dedupe: str = "ignored") -> Dict[str, i
         .all()
     )
 
+    # Per-issue ID buckets (kept in-memory for /stats/health/* endpoints)
+    ids = {
+        "missing_cover": [],
+        "missing_release_year": [],
+        "no_platforms": [],
+        "no_location": [],
+        "untagged": [],
+    }  # type: Dict[str, List[int]]
+
+    # Counters (kept for the summary response)
     missing_cover = 0
     missing_release_year = 0
     no_platforms = 0
@@ -98,19 +113,34 @@ def compute_health_stats(db: Session, *, dedupe: str = "ignored") -> Dict[str, i
     untagged = 0
 
     for g in games:
+        gid = int(g.id)
+
         if not (g.cover_url and str(g.cover_url).strip()):
             missing_cover += 1
+            ids["missing_cover"].append(gid)
+
         if not (isinstance(g.release_date, int) and g.release_date > 0):
             missing_release_year += 1
+            ids["missing_release_year"].append(gid)
+
         if not getattr(g, "platforms", []):
             no_platforms += 1
-        if not g.location_id or g.location_id == 1:# if you want default location to count remove or g.location_id == 1
+            ids["no_platforms"].append(gid)
+
+        # if you want default location to count remove `or g.location_id == 1`
+        if not g.location_id or g.location_id == 1:
             no_location += 1
+            ids["no_location"].append(gid)
+
         if not getattr(g, "tags", []):
             untagged += 1
+            ids["untagged"].append(gid)
 
     total_rows = len(games)
     total_titles = len({_title_key(g) for g in games})
+
+    # Store detailed IDs in cache with same TTL
+    _set_cached("health_ids", ids)
 
     return {
         "missing_cover": missing_cover,
@@ -133,9 +163,43 @@ def get_health_stats(db: Session, *, use_cache: bool = True) -> Dict[str, int]:
         cached = _get_cached(cache_key)
         if cached is not None:
             return cached
-    data = compute_health_stats(db)  # dedupe ignored inside
+    data = compute_health_stats(db)  # also populates "health_ids" cache
     _set_cached(cache_key, data)
     return data
+
+
+def get_health_details(db: Session, *, use_cache: bool = True) -> Dict[str, List[int]]:
+    """
+    Returns the detailed game ID lists for each health issue category:
+    {
+      "missing_cover": [int, ...],
+      "missing_release_year": [int, ...],
+      "no_platforms": [int, ...],
+      "no_location": [int, ...],
+      "untagged": [int, ...]
+    }
+
+    Uses the same 5-minute TTL as get_health_stats. If details are not cached,
+    it triggers a compute via compute_health_stats (which will also cache the summary).
+    """
+    if use_cache:
+        cached = _get_cached("health_ids")
+        if cached is not None:
+            return cached  # type: ignore[return-value]
+
+    # Ensure both summary and details are computed and cached
+    compute_health_stats(db)
+    details = _get_cached("health_ids")
+    if details is None:
+        # Shouldn't happen, but return empty structure to be safe
+        return {
+            "missing_cover": [],
+            "missing_release_year": [],
+            "no_platforms": [],
+            "no_location": [],
+            "untagged": [],
+        }
+    return details  # type: ignore[return-value]
 
 
 # --------------------------------------------------------
