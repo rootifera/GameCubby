@@ -485,13 +485,16 @@ def compute_games_by_genre(
     return items
 
 
-def force_refresh_health_stats(db: Session) -> Dict[str, int]:
+def force_refresh_all_stats(db: Session) -> None:
     """
-    Clears cached health stats and forces recomputation.
-    Returns the freshly computed health summary.
+    Clears ALL stat caches (overview, health, health_ids) and recomputes them to warm caches.
+    Does not return anything.
     """
+    _CACHE["overview"] = {"ts": 0.0, "data": None}
     _CACHE["health"] = {"ts": 0.0, "data": None}
     _CACHE["health_ids"] = {"ts": 0.0, "data": None}
-    data = compute_health_stats(db)
-    _set_cached("health", data)
-    return data
+
+    health = compute_health_stats(db)
+    _set_cached("health", health)
+
+    get_overview_stats(db, use_cache=False)

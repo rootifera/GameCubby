@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from ..db import get_db
-from ..utils.stats import get_overview_stats, get_health_stats, get_health_details
+from ..utils.stats import get_overview_stats, get_health_stats, get_health_details, force_refresh_all_stats
 from ..schemas.stats import OverviewStats, HealthStats
 from ..utils.auth import get_current_admin
 
@@ -95,12 +95,11 @@ def stats_health_tag(db: Session = Depends(get_db)) -> IdList:
     return _wrap_ids(details.get("untagged", []))
 
 
-@router.post("/force_refresh", response_model=HealthStats, dependencies=[Depends(get_current_admin)])
-def stats_force_refresh(db: Session = Depends(get_db)) -> HealthStats:
+@router.post("/force_refresh", dependencies=[Depends(get_current_admin)])
+def stats_force_refresh(db: Session = Depends(get_db)) -> dict:
     """
-    Clears the stats cache and forces recomputation of health stats.
-    Requires admin rights.
+    Clears ALL stat caches and recomputes them immediately (admin-only).
+    Does not return stats; just a confirmation.
     """
-    from ..utils.stats import force_refresh_health_stats
-    data = force_refresh_health_stats(db)
-    return HealthStats(**data)
+    force_refresh_all_stats(db)
+    return {"detail": "Stats cache refreshed"}
