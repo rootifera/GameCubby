@@ -3,14 +3,12 @@ services:
     container_name: gamecubby-db
     image: postgres:17
     restart: always
-    env_file:
-      - .env
+    env_file: [.env]
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-    ports:
-      - "8001:5432"
+    ports: ["8001:5432"]
     volumes:
       - gamecubby_db_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,36 +19,28 @@ services:
 
   gamecubby-api:
     container_name: gamecubby-api
-    image: rootifera/gamecubby-api:prod
     build:
       context: .
       dockerfile: gamecubby_api/Dockerfile
-    restart: on-failure
-    env_file:
-      - .env
+    image: rootifera/gamecubby-api:prod
+    restart: unless-stopped
+    env_file: [.env]
     depends_on:
       gamecubby-db:
         condition: service_healthy
-    ports:
-      - "8000:8000"
+    ports: ["8000:8000"]
     volumes:
-      - ./:/app
-      - ./gamecubby_api/storage:/app/gamecubby_api/storage
-      - ./storage:/storage
-    command: >
-      bash -c "alembic upgrade head && uvicorn gamecubby_api.main:app --host 0.0.0.0 --reload"
+      - ./storage:/app/storage
 
   gamecubby-web:
     container_name: gamecubby-web
     image: rootifera/gamecubby-web:prod
-    restart: on-failure
+    restart: unless-stopped
     depends_on:
       gamecubby-api:
         condition: service_started
-    env_file:
-      - .env
-    ports:
-      - "3000:3000"
+    env_file: [.env]
+    ports: ["3000:3000"]
     volumes:
       - ./storage:/storage
 

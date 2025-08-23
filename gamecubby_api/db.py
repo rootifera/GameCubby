@@ -8,8 +8,8 @@ DB_NAME = os.getenv("DB_NAME", "gamecubby")
 DB_USER = os.getenv("DB_USER", "gamecubby")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "gamecubby")
 
-POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "20"))
-MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "40"))
+POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "25"))
+MAX_OVERFLOW = int(os.getenv("DB_MAX_OVERFLOW", "25"))
 POOL_TIMEOUT = int(os.getenv("DB_POOL_TIMEOUT", "30"))
 POOL_RECYCLE = int(os.getenv("DB_POOL_RECYCLE", "1800"))
 POOL_PRE_PING = os.getenv("DB_POOL_PRE_PING", "true").lower() == "true"
@@ -34,5 +34,9 @@ def get_db():
     db = SessionLocal()
     try:
         yield db
+        db.commit()
+    except:
+        db.rollback()
+        raise
     finally:
         db.close()
