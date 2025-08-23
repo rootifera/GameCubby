@@ -322,7 +322,7 @@ def get_overview_stats(db: Session, *, use_cache: bool = True) -> Dict[str, obje
     year_counts: Dict[int, int] = {}
     for y in per_title_year:
         year_counts[y] = year_counts.get(y, 0) + 1
-    top_years = [{"year": y, "count": c} for y, c in sorted(year_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:5]]
+    top_years = [{"year": y, "count": c} for y, c in sorted(year_counts.items(), key=lambda kv: (-kv[1], kv[0]))[:10]]
 
     rated_titles: List[dict] = []
     for key, t in by_title.items():
