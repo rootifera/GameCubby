@@ -15,7 +15,6 @@ from ..models.mode import Mode
 from ..models.collection import Collection
 from ..models.igdb_tag import IGDBTag
 
-
 # ----------------------------
 # Simple in-memory cache (5m)
 # ----------------------------
@@ -28,6 +27,7 @@ _CACHE: Dict[str, Dict[str, object]] = {
     "health_ids": {"ts": 0.0, "data": None},
 }
 
+
 def _get_cached(name: str) -> Optional[dict]:
     entry = _CACHE.get(name)
     if not entry:
@@ -36,6 +36,7 @@ def _get_cached(name: str) -> Optional[dict]:
     if (time.time() - ts) <= _CACHE_TTL_SECONDS and entry.get("data") is not None:
         return entry["data"]  # type: ignore[return-value]
     return None
+
 
 def _set_cached(name: str, data: dict) -> None:
     _CACHE[name] = {"ts": time.time(), "data": data}
@@ -55,10 +56,12 @@ def _title_key(g: Game) -> Tuple[str, int]:
         return ("igdb", int(g.igdb_id))
     return ("manual", int(g.id))
 
+
 def _validate_dedupe(dedupe: str) -> str:
     if dedupe not in {"title", "none"}:
         raise HTTPException(status_code=422, detail="dedupe must be 'title' or 'none'")
     return dedupe
+
 
 def _company_id(gc: GameCompany) -> Optional[int]:
     """
@@ -149,7 +152,7 @@ def compute_health_stats(db: Session, *, dedupe: str = "ignored") -> Dict[str, i
         "no_location": no_location,
         "untagged": untagged,
         "total_games_unique": total_titles,  # title-deduped
-        "total_games": total_rows,           # raw rows
+        "total_games": total_rows,  # raw rows
     }
 
 
@@ -294,21 +297,27 @@ def get_overview_stats(db: Session, *, use_cache: bool = True) -> Dict[str, obje
 
     platform_counts = _top_counts([t["platform_ids"] for t in by_title.values()], top_n=5)
     platform_ids = [pid for pid, _ in platform_counts]
-    platforms = {p.id: p for p in db.query(Platform).filter(Platform.id.in_(platform_ids)).all()} if platform_ids else {}
-    top_platforms = [{"platform_id": pid, "name": platforms.get(pid).name if pid in platforms else "Unknown", "count": c}
-                     for pid, c in platform_counts]
+    platforms = {p.id: p for p in
+                 db.query(Platform).filter(Platform.id.in_(platform_ids)).all()} if platform_ids else {}
+    top_platforms = [
+        {"platform_id": pid, "name": platforms.get(pid).name if pid in platforms else "Unknown", "count": c}
+        for pid, c in platform_counts]
 
     publisher_counts = _top_counts([t["publisher_ids"] for t in by_title.values()], top_n=5)
     publisher_ids = [cid for cid, _ in publisher_counts]
-    publishers = {c.id: c for c in db.query(Company).filter(Company.id.in_(publisher_ids)).all()} if publisher_ids else {}
-    top_publishers = [{"company_id": cid, "name": publishers.get(cid).name if cid in publishers else "Unknown", "count": c}
-                      for cid, c in publisher_counts]
+    publishers = {c.id: c for c in
+                  db.query(Company).filter(Company.id.in_(publisher_ids)).all()} if publisher_ids else {}
+    top_publishers = [
+        {"company_id": cid, "name": publishers.get(cid).name if cid in publishers else "Unknown", "count": c}
+        for cid, c in publisher_counts]
 
     developer_counts = _top_counts([t["developer_ids"] for t in by_title.values()], top_n=10)
     developer_ids = [cid for cid, _ in developer_counts]
-    developers = {c.id: c for c in db.query(Company).filter(Company.id.in_(developer_ids)).all()} if developer_ids else {}
-    top_developers = [{"company_id": cid, "name": developers.get(cid).name if cid in developers else "Unknown", "count": c}
-                      for cid, c in developer_counts]
+    developers = {c.id: c for c in
+                  db.query(Company).filter(Company.id.in_(developer_ids)).all()} if developer_ids else {}
+    top_developers = [
+        {"company_id": cid, "name": developers.get(cid).name if cid in developers else "Unknown", "count": c}
+        for cid, c in developer_counts]
 
     year_counts: Dict[int, int] = {}
     for y in per_title_year:
@@ -381,12 +390,13 @@ def compute_summary_stats(db: Session, *, dedupe: str = "title") -> Dict[str, in
         "avg_rating_rows": avg_rating,
     }
 
+
 def compute_games_by_year(
-    db: Session,
-    *,
-    year_from: Optional[int] = None,
-    year_to: Optional[int] = None,
-    dedupe: str = "title",
+        db: Session,
+        *,
+        year_from: Optional[int] = None,
+        year_to: Optional[int] = None,
+        dedupe: str = "title",
 ) -> List[Dict[str, int]]:
     dedupe = _validate_dedupe(dedupe)
     games = db.query(Game).all()
@@ -411,12 +421,13 @@ def compute_games_by_year(
 
     return [{"year": year, "count": counts[year]} for year in sorted(counts)]
 
+
 def compute_games_by_platform(
-    db: Session,
-    *,
-    limit: Optional[int] = None,
-    include_empty: bool = False,
-    dedupe: str = "title",
+        db: Session,
+        *,
+        limit: Optional[int] = None,
+        include_empty: bool = False,
+        dedupe: str = "title",
 ) -> List[Dict[str, int | str]]:
     dedupe = _validate_dedupe(dedupe)
     games = db.query(Game).options(joinedload(Game.platforms)).all()
@@ -443,11 +454,12 @@ def compute_games_by_platform(
         items = items[: int(limit)]
     return items
 
+
 def compute_games_by_genre(
-    db: Session,
-    *,
-    limit: Optional[int] = None,
-    dedupe: str = "title",
+        db: Session,
+        *,
+        limit: Optional[int] = None,
+        dedupe: str = "title",
 ) -> List[Dict[str, int | str]]:
     dedupe = _validate_dedupe(dedupe)
     games = db.query(Game).options(joinedload(Game.genres)).all()
@@ -471,3 +483,18 @@ def compute_games_by_genre(
     if limit:
         items = items[: int(limit)]
     return items
+
+
+def force_refresh_all_stats(db: Session) -> None:
+    """
+    Clears ALL stat caches (overview, health, health_ids) and recomputes them to warm caches.
+    Does not return anything.
+    """
+    _CACHE["overview"] = {"ts": 0.0, "data": None}
+    _CACHE["health"] = {"ts": 0.0, "data": None}
+    _CACHE["health_ids"] = {"ts": 0.0, "data": None}
+
+    health = compute_health_stats(db)
+    _set_cached("health", health)
+
+    get_overview_stats(db, use_cache=False)
