@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from ..db import get_db
 from ..utils.stats import get_overview_stats, get_health_stats, get_health_details
 from ..schemas.stats import OverviewStats, HealthStats
+from ..utils.auth import get_current_admin
 
 router = APIRouter(prefix="/stats", tags=["Stats"])
 
@@ -92,3 +93,14 @@ def stats_health_tag(db: Session = Depends(get_db)) -> IdList:
     """
     details = get_health_details(db, use_cache=True)
     return _wrap_ids(details.get("untagged", []))
+
+
+@router.post("/force_refresh", response_model=HealthStats, dependencies=[Depends(get_current_admin)])
+def stats_force_refresh(db: Session = Depends(get_db)) -> HealthStats:
+    """
+    Clears the stats cache and forces recomputation of health stats.
+    Requires admin rights.
+    """
+    from ..utils.stats import force_refresh_health_stats
+    data = force_refresh_health_stats(db)
+    return HealthStats(**data)
