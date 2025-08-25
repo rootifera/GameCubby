@@ -1,10 +1,6 @@
 # GameCubby
 
-GameCubby is a work-in-progress API for cataloging video games with support for:
+todo:
 
-- Custom tags, genres, platforms, modes, and storage locations
-- Collections and physical organization
-- IGDB integration for metadata lookup
-- Involved companies (developer/publisher) [WIP]
-
-This project is under active development and not yet stable.
+1 - location migration: move all games from location A to B
+2 - location search with children: Get games from Location A should include all games under A tree. 
