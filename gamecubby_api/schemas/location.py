@@ -9,3 +9,18 @@ class Location(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class LocationMigrationRequest(BaseModel):
+    """
+    Payload for migrating all games from one location to another.
+    """
+    source_location_id: int
+    target_location_id: int
+
+
+class LocationMigrationResult(BaseModel):
+    """
+    Response model for a migration operation.
+    """
+    migrated: int

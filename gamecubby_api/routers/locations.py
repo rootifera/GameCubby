@@ -1,14 +1,14 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, Body
 from sqlalchemy.orm import Session
 from ..db import get_db
-from ..schemas.location import Location as LocationSchema
+from ..schemas.location import Location as LocationSchema, LocationMigrationResult, LocationMigrationRequest
 from ..utils.location import (
     create_location,
     get_location,
     list_top_locations,
     list_child_locations,
     list_all_locations,
-    delete_location, rename_location,  # <-- added
+    delete_location, rename_location, migrate_location_games,  # <-- added
 )
 from ..utils.auth import get_current_admin
 
@@ -67,9 +67,9 @@ def remove_location(location_id: int, db: Session = Depends(get_db)):
 
 @router.put("/{location_id}/rename", response_model=LocationSchema, dependencies=[Depends(get_current_admin)])
 def rename_location_endpoint(
-    location_id: int,
-    name: str = Body(..., embed=True),
-    db: Session = Depends(get_db),
+        location_id: int,
+        name: str = Body(..., embed=True),
+        db: Session = Depends(get_db),
 ):
     loc = get_location(db, location_id)
     if not loc:
@@ -80,5 +80,30 @@ def rename_location_endpoint(
         if not updated:
             raise HTTPException(status_code=404, detail="Location not found")
         return updated
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/migrate",
+    response_model=LocationMigrationResult,
+    dependencies=[Depends(get_current_admin)],
+)
+def migrate_location_endpoint(
+        payload: LocationMigrationRequest,
+        db: Session = Depends(get_db),
+):
+    """
+    Bulk-migrate all games from source_location_id to target_location_id.
+    - Validates target exists.
+    - Lenient on source: if it doesn't exist or has no games, result is migrated=0.
+    """
+    try:
+        migrated_count = migrate_location_games(
+            db,
+            source_location_id=payload.source_location_id,
+            target_location_id=payload.target_location_id,
+        )
+        return LocationMigrationResult(migrated=int(migrated_count))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

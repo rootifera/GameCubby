@@ -2,7 +2,7 @@ from fastapi import Request, HTTPException
 from sqlalchemy.sql import func
 
 from ..utils.db_tools import with_db
-from ..utils.location import get_location_path
+from ..utils.location import get_location_path, get_descendant_location_ids_from_snapshot
 
 from ..models.game import Game
 from ..models.tag import Tag
@@ -130,6 +130,11 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
     if include_manual not in [None, "true", "false", "only"]:
         raise HTTPException(status_code=422, detail="include_manual must be 'true', 'false', or 'only'")
 
+    # Optional include-descendants toggle for location
+    include_desc = qp.get("include_location_descendants")
+    if include_desc not in [None, "true", "false"]:
+        raise HTTPException(status_code=422, detail="include_location_descendants must be 'true' or 'false'")
+
     # Presence check
     filter_present = any([
         qp.get("name"),
@@ -154,6 +159,7 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
         # Name
         if name := qp.get("name"):
             query = query.filter(Game.name.ilike(f"%{name.strip().lower()}%"))
+
         # Year and ranges
         if year:
             query = query.filter(
@@ -184,7 +190,7 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
             else:  # any
                 query = query.filter(Game.platforms.any(Platform.id.in_(platform_ids)))
 
-        # Tags (any/all/exact) — preserves existing 'match_mode' param
+        # Tags (any/all/exact)
         tag_ids = _parse_int_list(qp.getlist("tag_ids"))
         if tag_ids:
             if tag_match_mode == "all":
@@ -241,7 +247,7 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
             if coll.isdigit():
                 query = query.filter(Game.collection_id == int(coll))
 
-        # Companies (multi + any/all/exact). Supports company_id (single/repeated) and company_ids (array style).
+        # Companies (multi + any/all/exact)
         company_ids: list[int] = []
         for cid in qp.getlist("company_ids"):
             if cid and cid.isdigit():
@@ -265,7 +271,7 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
             else:  # any
                 query = query.filter(Game.companies.any(GameCompany.company_id.in_(company_ids)))
 
-        # IGDB tags (any/all/exact) — preserves existing 'igdb_match_mode' param
+        # IGDB tags (any/all/exact)
         igdb_ids = _parse_int_list(qp.getlist("igdb_tag_ids"))
         if igdb_ids:
             if igdb_match_mode == "all":
@@ -278,10 +284,17 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
             else:  # any
                 query = query.filter(Game.igdb_tags.any(IGDBTag.id.in_(igdb_ids)))
 
-        # Location
+        # Location (with optional descendants)
         if loc := qp.get("location_id"):
-            if loc.isdigit():
-                query = query.filter(Game.location_id == int(loc))
+            if not loc.isdigit():
+                raise HTTPException(status_code=422, detail="location_id must be a number")
+            root = int(loc)
+            if include_desc == "true":
+                desc_ids = get_descendant_location_ids_from_snapshot(db, root)
+                ids = [root] + desc_ids if desc_ids else [root]
+                query = query.filter(Game.location_id.in_(ids))
+            else:
+                query = query.filter(Game.location_id == root)
 
         # Manual entries
         if include_manual == "true":
