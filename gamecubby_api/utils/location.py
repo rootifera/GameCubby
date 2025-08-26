@@ -107,3 +107,29 @@ def rename_location(session: Session, location_id: int, new_name: str) -> Option
     session.commit()
     session.refresh(loc)
     return loc
+
+
+def migrate_location_games(session: Session, source_location_id: int, target_location_id: int) -> int:
+    """
+    Bulk-migrate all games from source_location_id to target_location_id.
+
+    Returns:
+        int -> number of games updated.
+
+    Raises:
+        ValueError -> if target location doesn't exist, or source==target.
+    """
+    if source_location_id == target_location_id:
+        raise ValueError("Source and target locations must be different")
+
+    target = session.query(Location.id).filter_by(id=target_location_id).first()
+    if not target:
+        raise ValueError("Target location does not exist")
+
+    affected = (
+        session.query(Game)
+        .filter(Game.location_id == source_location_id)
+        .update({Game.location_id: target_location_id}, synchronize_session=False)
+    )
+    session.commit()
+    return int(affected or 0)
