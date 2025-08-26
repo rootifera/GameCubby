@@ -1,5 +1,7 @@
-from typing import Optional
+from collections import defaultdict
+from typing import Optional, List, DefaultDict
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 from ..models.location import Location
 from ..models.game import Game
 
@@ -133,3 +135,56 @@ def migrate_location_games(session: Session, source_location_id: int, target_loc
     )
     session.commit()
     return int(affected or 0)
+
+
+def get_descendant_location_ids_from_snapshot(session: Session, root_id: int) -> List[int]:
+    """
+    Compute ALL descendant location IDs under `root_id` using a single snapshot
+    query of the entire locations table, then in-memory BFS over a parent->children
+    map. Excludes `root_id` itself.
+
+    This avoids multiple DB roundtrips and works regardless of ORM row/tuple quirks.
+    """
+    rows: list[tuple[int, int | None]] = [
+        (loc.id, loc.parent_id) for loc in session.query(Location.id, Location.parent_id).all()
+    ]
+
+    children_map: DefaultDict[int, List[int]] = defaultdict(list)
+    for loc_id, parent_id in rows:
+        if parent_id is not None:
+            children_map[parent_id].append(loc_id)
+
+    descendants: List[int] = []
+    frontier: List[int] = children_map.get(root_id, []).copy()
+
+    while frontier:
+        next_frontier: List[int] = []
+        for lid in frontier:
+            descendants.append(lid)
+            kids = children_map.get(lid, [])
+            if kids:
+                next_frontier.extend(kids)
+        frontier = next_frontier
+
+    return descendants
+
+
+def get_descendant_location_ids(session, root_id: int) -> list[int]:
+    """
+    Returns all descendant location IDs under root_id (excludes root_id).
+    Implemented with SQLAlchemy Core recursive CTE (no raw SQL).
+    """
+    from sqlalchemy import select
+    from sqlalchemy.orm import aliased
+    from ..models.location import Location
+
+    sub = select(Location.id).where(Location.parent_id == root_id).cte(name="sub", recursive=True)
+
+    L = aliased(Location)
+
+    sub = sub.union_all(
+        select(L.id).where(L.parent_id == sub.c.id)
+    )
+
+    rows = session.execute(select(sub.c.id)).scalars().all()
+    return list(rows)

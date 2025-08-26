@@ -223,6 +223,13 @@ async def basic_search(request: Request):
 
             # Location
             {"name": "location_id", "in": "query", "required": False, "schema": {"type": "integer"}},
+            {
+                "name": "include_location_descendants",
+                "in": "query",
+                "required": False,
+                "schema": {"type": "string", "enum": ["true", "false"]},
+                "description": "If 'true', include games in all descendant locations of the given location_id. Default is 'false' (exact match only).",
+            },
 
             # Manual entries toggles
             {
