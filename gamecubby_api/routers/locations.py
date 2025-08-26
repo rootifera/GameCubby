@@ -1,14 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, Body
 from sqlalchemy.orm import Session
 from ..db import get_db
+from ..schemas.game import GameIdName
 from ..schemas.location import Location as LocationSchema, LocationMigrationResult, LocationMigrationRequest
+from ..utils.game import list_games_by_location
 from ..utils.location import (
     create_location,
     get_location,
     list_top_locations,
     list_child_locations,
     list_all_locations,
-    delete_location, rename_location, migrate_location_games,  # <-- added
+    delete_location, rename_location, migrate_location_games,
 )
 from ..utils.auth import get_current_admin
 
@@ -107,3 +109,15 @@ def migrate_location_endpoint(
         return LocationMigrationResult(migrated=int(migrated_count))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/{location_id}/games", response_model=list[GameIdName])
+def list_games_for_location(location_id: int, db: Session = Depends(get_db)):
+    """
+    Return only id and name for games assigned to the specified location.
+    """
+    if not get_location(db, location_id):
+        raise HTTPException(status_code=404, detail="Location not found")
+
+    games = list_games_by_location(db, location_id)
+    return [GameIdName(id=g.id, name=g.name) for g in games]
