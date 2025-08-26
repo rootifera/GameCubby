@@ -1,5 +1,6 @@
 from collections import defaultdict
-from typing import Optional, List, DefaultDict
+from typing import Optional, List, DefaultDict, Tuple
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from ..models.location import Location
@@ -188,3 +189,17 @@ def get_descendant_location_ids(session, root_id: int) -> list[int]:
 
     rows = session.execute(select(sub.c.id)).scalars().all()
     return list(rows)
+
+
+def list_games_id_name_by_location(session: Session, location_id: int) -> List[Tuple[int, str]]:
+    """
+    Return (id, name) pairs for games assigned exactly to the given location_id.
+    Sorted case-insensitively by name. Lightweight (selects only two columns).
+    """
+    rows = (
+        session.query(Game.id, Game.name)
+        .filter(Game.location_id == location_id)
+        .order_by(func.lower(Game.name))
+        .all()
+    )
+    return [(r[0], r[1]) for r in rows]
