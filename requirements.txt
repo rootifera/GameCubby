@@ -9,7 +9,7 @@ click==8.2.1
 coverage==7.10.5
 dnspython==2.7.0
 ecdsa==0.19.1
-email_validator==2.2.0
+email_validator==2.3.0
 et_xmlfile==2.0.0
 fastapi==0.116.1
 fastapi-cli==0.0.8
