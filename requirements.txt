@@ -1,5 +1,5 @@
 aiofiles==24.1.0
-alembic==1.16.4
+alembic==1.16.5
 annotated-types==0.7.0
 anyio==4.10.0
 Bottleneck
