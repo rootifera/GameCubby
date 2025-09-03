@@ -36,3 +36,11 @@ For installation, setup, and detailed usage, please see the **[GameCubby Wiki](h
 ### Add Game (gets game data from IGDB)
 
 ![Add Game](https://i.gyazo.com/efd7d184b385d9ddfa5cb5667ca3ef63.png)
+
+## Notice
+
+GameCubby is provided for **personal, non-commercial use only**.  
+Commercial use of this application is **not allowed**.  
+
+In addition, GameCubby uses the [IGDB API](https://api-docs.igdb.com/), which is also licensed for **non-commercial use only**.  
+Any attempt to use GameCubby or IGDB data for commercial purposes would violate their terms of service.
