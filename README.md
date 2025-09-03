@@ -10,7 +10,11 @@ It’s designed for collectors who want to organize their libraries in a flexibl
 - **Location Tracking** – Organize games by shelves, boxes, or any structure you like.  
 - **File Management** – Attach patches, saves, screenshots, or ISOs to your games.  
 - **Advanced Search** – Search by name, platform, year, tags, genres, and more.  
-- **Admin Tools** – Manage games, locations, files, backups, and updates.  
+- **Admin Tools** – Manage games, locations, files, backups, and updates.
+
+## Documentation
+
+For installation, setup, and detailed usage, please see the **[GameCubby Wiki](https://github.com/rootifera/GameCubby/wiki)**.  
 
 ## Screenshots
 
@@ -29,6 +33,3 @@ It’s designed for collectors who want to organize their libraries in a flexibl
 ### Admin Menu
 ![Admin Menu](https://i.gyazo.com/b5be4daeb8965f574a659e146c975182.png)
 
-## Documentation
-
-For installation, setup, and detailed usage, please see the **[GameCubby Wiki](https://github.com/rootifera/GameCubby/wiki)**.  
