@@ -33,3 +33,6 @@ For installation, setup, and detailed usage, please see the **[GameCubby Wiki](h
 ### Admin Menu
 ![Admin Menu](https://i.gyazo.com/b5be4daeb8965f574a659e146c975182.png)
 
+### Add Game (gets game data from IGDB)
+
+![Add Game](https://i.gyazo.com/efd7d184b385d9ddfa5cb5667ca3ef63.png)
