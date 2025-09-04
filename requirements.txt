@@ -51,7 +51,7 @@ pytz
 PyYAML==6.0.2
 requests==2.32.5
 rich==14.1.0
-rich-toolkit==0.15.0
+rich-toolkit==0.15.1
 rsa==4.9.1
 setuptools==80.9.0
 shellingham==1.5.4
