@@ -11,7 +11,7 @@ dnspython==2.7.0
 ecdsa==0.19.1
 email_validator==2.3.0
 et_xmlfile==2.0.0
-fastapi==0.118.0
+fastapi==0.118.3
 fastapi-cli==0.0.13
 greenlet==3.2.4
 h11==0.16.0
