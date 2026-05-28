@@ -63,7 +63,7 @@ typer==0.26.2
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 tzdata
-ujson==5.11.0
+ujson==5.12.1
 Unidecode==1.4.0
 urllib3==2.7.0
 uvicorn==0.40.0
