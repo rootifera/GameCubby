@@ -31,7 +31,7 @@ numexpr
 numpy
 openpyxl==3.1.5
 orjson==3.11.5
-packaging==25.0
+packaging==26.2
 pandas
 pandas-stubs==3.0.0.260204
 passlib==1.7.4
