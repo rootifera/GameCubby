@@ -40,7 +40,7 @@ psycopg2-binary==2.9.12
 pyasn1==0.6.3
 pydantic==2.13.4
 pydantic_core==2.46.4
-Pygments==2.19.2
+Pygments==2.20.0
 pytest==9.0.2
 pytest-cov==7.0.0
 python-dateutil
