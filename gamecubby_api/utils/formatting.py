@@ -1,32 +1,7 @@
 from datetime import datetime
-from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from ..models.genre import Genre
-from ..models.mode import Mode
-
-
-def format_igdb_cover_url(cover: Optional[dict]) -> Optional[str]:
-    """
-    Takes IGDB 'cover' dict and returns a formatted full-size cover URL.
-    """
-    if cover and cover.get("url"):
-        return "https:" + cover["url"].replace("t_thumb", "t_cover_big")
-    return None
-
-
-def format_igdb_release_year(timestamp: Optional[int]) -> Optional[int]:
-    """
-    Converts IGDB 'first_release_date' timestamp to release year.
-    """
-    if timestamp:
-        return datetime.fromtimestamp(timestamp).year
-    return None
-
-
-from datetime import datetime
-from sqlalchemy.orm import Session
 from ..models.genre import Genre
 from ..models.mode import Mode
 
