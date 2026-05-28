@@ -604,6 +604,7 @@ def list_games_preview(db: Session) -> list[GamePreview]:
             cover_url=game.cover_url,
             release_date=game.release_date,
             summary=game.summary,
+            rating=game.rating,
             platforms=[
                 PlatformPreview(
                     id=platform.id,

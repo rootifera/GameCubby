@@ -121,6 +121,7 @@ class GamePreview(BaseModel):
     cover_url: Optional[str] = None
     release_date: Optional[int] = None
     summary: Optional[str] = None
+    rating: Optional[int] = None
     platforms: List[PlatformPreview] = Field(default_factory=list)
 
     class Config:
