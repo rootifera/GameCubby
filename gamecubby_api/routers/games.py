@@ -25,6 +25,7 @@ from ..schemas.tag import Tag as TagSchema
 from ..schemas.platform import Platform as PlatformSchema
 from ..utils.location import get_location_path
 from ..utils.auth import get_current_admin
+from ..utils.db_tools import with_db
 
 router = APIRouter(prefix="/games", tags=["Games"])
 
@@ -103,18 +104,20 @@ async def refresh_metadata_endpoint(game_id: int, db: Session = Depends(get_db))
 
 
 @router.post("/refresh_all_metadata", dependencies=[Depends(get_current_admin)])
-async def refresh_all_metadata_endpoint(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+async def refresh_all_metadata_endpoint(background_tasks: BackgroundTasks):
     def do_refresh():
-        refresh_all_games_metadata(db)
+        with with_db() as db:
+            refresh_all_games_metadata(db)
 
     background_tasks.add_task(do_refresh)
     return {"status": "started", "detail": "Refreshing all IGDB games in background. Check logs for progress."}
 
 
 @router.post("/force_refresh_metadata", dependencies=[Depends(get_current_admin)])
-async def force_refresh_metadata_endpoint(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+async def force_refresh_metadata_endpoint(background_tasks: BackgroundTasks):
     def do_force_refresh():
-        force_refresh_metadata(db)
+        with with_db() as db:
+            force_refresh_metadata(db)
 
     background_tasks.add_task(do_force_refresh)
     return {"status": "started", "detail": "Force refresh: all IGDB games will be re-synced."}
