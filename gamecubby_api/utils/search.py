@@ -305,7 +305,10 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
             query = query.filter(Game.igdb_id == 0)
 
         # ORDER / LIMIT
-        query = query.order_by(func.lower(Game.name))
+        if qp.get("sort_by_order") == "true" and qp.get("location_id"):
+            query = query.order_by(Game.order.is_(None), Game.order, func.lower(Game.name))
+        else:
+            query = query.order_by(func.lower(Game.name))
 
         lim = qp.get("limit")
         off = qp.get("offset")
