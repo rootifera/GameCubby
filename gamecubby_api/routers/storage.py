@@ -80,6 +80,8 @@ async def upload_file(
         if "already exists" in str(e) or "already registered" in str(e):
             raise HTTPException(status_code=409, detail=f"File already exists: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
