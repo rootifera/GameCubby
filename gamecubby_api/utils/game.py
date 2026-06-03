@@ -20,11 +20,13 @@ from sqlalchemy import func
 from ..models.playerperspective import PlayerPerspective
 from ..models.company import Company
 from ..models.game_company import GameCompany
+from ..models.storage import GameFile
 from ..utils.external import get_igdb_token, _get_igdb_credentials
 from typing import List, Optional, cast, Dict, Tuple, Union
 import asyncio
 import os
 import httpx
+from pathlib import Path
 
 
 def get_game(session: Session, game_id: int) -> Optional[Game]:
@@ -89,6 +91,31 @@ def list_games(session: Session) -> List[Game]:
             current_id = loc.parent_id
 
     return games
+
+
+def _local_game_ref(name: str) -> str:
+    return "".join(c for c in name.lower() if c.isalnum())
+
+
+def _move_local_game_files_for_rename(session: Session, old_ref: str, new_ref: str) -> None:
+    if not old_ref or not new_ref or old_ref == new_ref:
+        return
+
+    old_dir = Path("./storage/uploads/local") / old_ref
+    new_dir = Path("./storage/uploads/local") / new_ref
+
+    moved_dir = False
+    if old_dir.exists() and not new_dir.exists():
+        new_dir.parent.mkdir(parents=True, exist_ok=True)
+        old_dir.rename(new_dir)
+        moved_dir = True
+
+    old_prefix = str(old_dir)
+    new_prefix = str(new_dir)
+    for file_record in session.query(GameFile).filter(GameFile.game == old_ref).all():
+        file_record.game = new_ref
+        if moved_dir and file_record.path.startswith(old_prefix):
+            file_record.path = new_prefix + file_record.path[len(old_prefix):]
 
 
 def create_game(session: Session, game_data: dict) -> Game:
@@ -158,6 +185,8 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
     game = session.query(Game).filter_by(id=game_id).first()
     if not game:
         return None
+
+    old_local_ref = _local_game_ref(game.name) if game.igdb_id == 0 else None
 
     if game.igdb_id != 0:
         allowed_fields = {"location_id", "order", "condition", "tag_ids", "platform_ids"}
@@ -237,6 +266,10 @@ def update_game(session: Session, game_id: int, update_data: dict) -> Optional[G
     for key, value in update_data.items():
         if value is not None:
             setattr(game, key, value)
+
+    if old_local_ref and "name" in update_data and update_data["name"]:
+        new_local_ref = _local_game_ref(str(update_data["name"]))
+        _move_local_game_files_for_rename(session, old_local_ref, new_local_ref)
 
     session.commit()
     session.refresh(game)

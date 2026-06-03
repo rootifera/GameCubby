@@ -1,10 +1,9 @@
 import httpx
 import time
 from typing import Optional, Tuple
-from fastapi import Depends
 from sqlalchemy.orm import Session
-from ..db import get_db
 from .app_config import get_app_config_value
+from .db_tools import with_db
 
 TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 
@@ -20,14 +19,18 @@ def _get_igdb_credentials(db: Session) -> Tuple[str, str]:
     return client_id, client_secret
 
 
+def _get_configured_igdb_credentials() -> Tuple[str, str]:
+    with with_db() as db:
+        return _get_igdb_credentials(db)
+
+
 async def get_igdb_token() -> str:
     global _igdb_token, _igdb_token_expiry
 
     if _igdb_token and time.time() < _igdb_token_expiry:
         return _igdb_token
 
-    db = next(get_db())
-    client_id, client_secret = _get_igdb_credentials(db)
+    client_id, client_secret = _get_configured_igdb_credentials()
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(
@@ -47,8 +50,7 @@ async def get_igdb_token() -> str:
 
 
 async def fetch_igdb_game(igdb_id: int) -> Optional[dict]:
-    db = next(get_db())
-    client_id, _ = _get_igdb_credentials(db)
+    client_id, _ = _get_configured_igdb_credentials()
     token = await get_igdb_token()
 
     IGDB_URL = "https://api.igdb.com/v4/games"
@@ -71,8 +73,7 @@ async def fetch_igdb_game(igdb_id: int) -> Optional[dict]:
 
 
 async def fetch_igdb_collection(game_id: int) -> list[dict]:
-    db = next(get_db())
-    client_id, _ = _get_igdb_credentials(db)
+    client_id, _ = _get_configured_igdb_credentials()
     token = await get_igdb_token()
 
     headers = {
@@ -101,8 +102,7 @@ async def fetch_igdb_collection(game_id: int) -> list[dict]:
 
 
 async def fetch_igdb_companies(company_ids: list[int]) -> dict[int, str]:
-    db = next(get_db())
-    client_id, _ = _get_igdb_credentials(db)
+    client_id, _ = _get_configured_igdb_credentials()
     token = await get_igdb_token()
 
     headers = {
@@ -121,8 +121,7 @@ async def fetch_igdb_companies(company_ids: list[int]) -> dict[int, str]:
 
 
 async def fetch_igdb_involved_companies(involved_ids: list[int]) -> list[dict]:
-    db = next(get_db())
-    client_id, _ = _get_igdb_credentials(db)
+    client_id, _ = _get_configured_igdb_credentials()
     token = await get_igdb_token()
 
     headers = {
@@ -156,8 +155,7 @@ async def fetch_igdb_involved_companies(involved_ids: list[int]) -> list[dict]:
 
 
 async def search_igdb_games(name_query: str) -> list[dict]:
-    db = next(get_db())
-    client_id, _ = _get_igdb_credentials(db)
+    client_id, _ = _get_configured_igdb_credentials()
     token = await get_igdb_token()
 
     headers = {

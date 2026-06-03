@@ -209,3 +209,8 @@ __marimo__/
 *.db
 storage*
 sonar-project.properties
+openapi.json
+.env.integration.local
+docker-compose.integration.yml
+integration.env.example
+scripts/integration_smoke.sh

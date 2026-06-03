@@ -230,6 +230,13 @@ async def basic_search(request: Request):
                 "schema": {"type": "string", "enum": ["true", "false"]},
                 "description": "If 'true', include games in all descendant locations of the given location_id. Default is 'false' (exact match only).",
             },
+            {
+                "name": "sort_by_order",
+                "in": "query",
+                "required": False,
+                "schema": {"type": "string", "enum": ["true", "false"]},
+                "description": "If 'true' with location_id, order results by game order before name.",
+            },
 
             # Manual entries toggles
             {

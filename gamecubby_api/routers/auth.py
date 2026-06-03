@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from passlib.context import CryptContext
 
 from ..db import get_db
-from ..schemas.admin import LoginRequest, PasswordChangeRequest
+from ..schemas.admin import LoginRequest
 from ..utils.auth import get_current_admin
 from ..models.admin import AdminUser
 from ..utils.jwt import create_access_token

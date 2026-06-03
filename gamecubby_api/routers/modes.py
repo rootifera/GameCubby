@@ -4,6 +4,7 @@ from ..db import get_db
 from ..schemas.mode import Mode as ModeSchema
 from ..utils.mode import list_modes, sync_modes, get_mode_by_id
 from ..utils.auth import get_current_admin
+from ..utils.db_tools import with_db
 
 router = APIRouter(prefix="/modes", tags=["Modes"])
 
@@ -22,9 +23,10 @@ def get_mode(mode_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/sync", dependencies=[Depends(get_current_admin)])
-async def sync_modes_endpoint(background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+async def sync_modes_endpoint(background_tasks: BackgroundTasks):
     async def run_sync():
-        await sync_modes(db)
+        with with_db() as db:
+            await sync_modes(db)
 
     background_tasks.add_task(run_sync)
     return {"message": "Mode sync started in background."}

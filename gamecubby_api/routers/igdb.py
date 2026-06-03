@@ -1,23 +1,17 @@
-from typing import List
-
-from ..schemas.game import GamePreview, PlatformPreview
+from ..schemas.game import GamePreview
 from ..utils.formatting import format_igdb_game
 from ..utils.external import get_igdb_token, fetch_igdb_game, fetch_igdb_collection, fetch_igdb_involved_companies, \
     search_igdb_games
 from ..utils.platform import ensure_platforms_exist
 from sqlalchemy.orm import Session
 from ..utils.igdb_tag import upsert_igdb_tags
-from ..utils.app_config import get_int_config_value, get_or_create_query_limit
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from ..utils.auth import get_current_admin
 from ..db import get_db
 from ..models.igdb_tag import IGDBTag  # ← added
 
 router = APIRouter(tags=["IGDB"])
-
-QUERY_LIMIT = get_or_create_query_limit(next(get_db()))
-IGDB_URL = "https://api.igdb.com/v4/games"
 
 
 @router.get("/search", response_model=list[GamePreview])

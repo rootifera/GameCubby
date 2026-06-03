@@ -13,6 +13,7 @@ from ..utils.storage import (
 )
 from ..utils.auth import get_current_admin, get_current_admin_optional
 from ..utils.app_config import get_app_config_value
+from ..utils.db_tools import with_db
 
 import logging
 
@@ -79,6 +80,8 @@ async def upload_file(
         if "already exists" in str(e) or "already registered" in str(e):
             raise HTTPException(status_code=409, detail=f"File already exists: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
@@ -117,12 +120,12 @@ def sync_files(
 @system_files_router.post("/sync-all", response_model=dict)
 def full_system_sync(
         background_tasks: BackgroundTasks,
-        db: Session = Depends(get_db),
         admin=Depends(get_current_admin)
 ) -> dict:
     def _run_sync():
         try:
-            results = sync_all_files(db)
+            with with_db() as db:
+                results = sync_all_files(db)
             logger.info(f"Sync completed. Results: {results}")
         except Exception as e:
             logger.error(f"Sync failed: {str(e)}")
