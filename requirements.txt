@@ -33,7 +33,7 @@ openpyxl==3.1.5
 orjson==3.11.9
 packaging==26.2
 pandas
-pandas-stubs==3.0.0.260204
+pandas-stubs==3.0.3.260530
 passlib==1.7.4
 bcrypt==4.0.1
 pluggy==1.6.0
