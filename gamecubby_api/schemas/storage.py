@@ -19,6 +19,10 @@ class FileBase(BaseModel):
     label: str
     path: str
     category: FileCategory
+    storage_backend: str = "local"
+    object_key: str | None = None
+    size: int | None = None
+    content_type: str | None = None
 
 
 class FileCreate(BaseModel):

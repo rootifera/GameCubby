@@ -1,6 +1,6 @@
 from enum import Enum as PyEnum
 
-from sqlalchemy import Column, Integer, String, Enum
+from sqlalchemy import BigInteger, Column, Integer, String, Enum
 from ..models import Base
 
 
@@ -23,6 +23,10 @@ class GameFile(Base):
     game = Column(String(180))
     label = Column(String(100))
     path = Column(String(500), unique=True)
+    storage_backend = Column(String(20), nullable=False, default="local", server_default="local")
+    object_key = Column(String(1024), nullable=True)
+    size = Column(BigInteger, nullable=True)
+    content_type = Column(String(255), nullable=True)
 
     category = Column(
         Enum(FileCategory, name="file_category"),

@@ -4,14 +4,18 @@ import os
 import shutil
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List
 from urllib.parse import urlparse
 
 from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
 
 from ..db import DATABASE_URL
+from .app_config import get_app_config_value
+from .storage import _s3_bucket, _s3_client, _s3_prefix
 
 BACKUP_DIR = Path(os.getenv("BACKUP_DIR", "storage/backups"))
 BACKUP_DIR.mkdir(parents=True, exist_ok=True)
@@ -52,6 +56,13 @@ def _auto_filename(now: datetime | None = None) -> str:
       auto_gamecubby_YYYYMMDD_HHMMSS.dump
     """
     return f"auto_gamecubby_{_stamp_full(now)}.dump"
+
+
+@dataclass
+class SavedBackup:
+    uri: str
+    size: int
+    local_path: Path | None = None
 
 
 
@@ -139,19 +150,168 @@ def create_backup() -> StreamingResponse:
         raise
 
 
-def save_backup_to_disk() -> Path:
+def _config_value(db: Session, key: str, default: str = "") -> str:
+    value = get_app_config_value(db, key)
+    return (value if value is not None else default).strip()
+
+
+def _backup_storage_backend(db: Session) -> str:
+    backend = _config_value(db, "backup_storage_backend", "local").lower()
+    if backend not in {"local", "s3"}:
+        backend = "local"
+    return backend
+
+
+def _backup_s3_key(db: Session, filename: str) -> str:
+    prefix = _s3_prefix(db)
+    key = f"backups/{filename}"
+    return f"{prefix}/{key}" if prefix else key
+
+
+def _backup_s3_prefix(db: Session) -> str:
+    prefix = _s3_prefix(db)
+    return f"{prefix}/backups/" if prefix else "backups/"
+
+
+def _is_backup_name(name: str) -> bool:
+    return name.endswith((".dump", ".backup", ".pgc", ".pgdump", ".tar", ".pgcustom"))
+
+
+def list_backups(db: Session) -> list[dict]:
+    backups: list[dict] = []
+
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    for path in BACKUP_DIR.iterdir():
+        if not path.is_file() or not _is_backup_name(path.name):
+            continue
+        try:
+            st = path.stat()
+        except Exception:
+            continue
+        backups.append({
+            "name": path.name,
+            "relpath": path.name,
+            "abspath": str(path),
+            "uri": str(path),
+            "source": "local",
+            "size": st.st_size,
+            "mtime": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc).isoformat(),
+        })
+
+    try:
+        bucket = _s3_bucket(db)
+        prefix = _backup_s3_prefix(db)
+        client = _s3_client(db)
+        paginator = client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                key = obj.get("Key")
+                if not key or key.endswith("/"):
+                    continue
+                name = key.split("/")[-1]
+                if not _is_backup_name(name):
+                    continue
+                last_modified = obj.get("LastModified")
+                backups.append({
+                    "name": name,
+                    "relpath": key,
+                    "abspath": f"s3://{bucket}/{key}",
+                    "uri": f"s3://{bucket}/{key}",
+                    "source": "s3",
+                    "size": obj.get("Size", 0),
+                    "mtime": last_modified.isoformat() if last_modified else "",
+                })
+    except Exception:
+        pass
+
+    backups.sort(key=lambda item: item.get("mtime") or "", reverse=True)
+    return backups
+
+
+def sync_backup_storage(db: Session, source: str, target: str) -> dict:
+    source = source.strip().lower()
+    target = target.strip().lower()
+    if source not in {"local", "s3"} or target not in {"local", "s3"}:
+        raise ValueError("source and target must be 'local' or 's3'")
+    if source == target:
+        raise ValueError("source and target must be different")
+
+    bucket = _s3_bucket(db)
+    result = {"source": source, "target": target, "copied": 0, "skipped": 0, "failed": 0, "errors": []}
+
+    if source == "local" and target == "s3":
+        BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+        for path in BACKUP_DIR.iterdir():
+            if not path.is_file() or not _is_backup_name(path.name):
+                continue
+            try:
+                key = _backup_s3_key(db, path.name)
+                try:
+                    _s3_client(db).head_object(Bucket=bucket, Key=key)
+                    result["skipped"] += 1
+                    continue
+                except Exception:
+                    pass
+                _s3_client(db).upload_file(str(path), bucket, key)
+                result["copied"] += 1
+            except Exception as e:
+                result["failed"] += 1
+                result["errors"].append(f"{path.name}: {str(e)}")
+        return result
+
+    prefix = _backup_s3_prefix(db)
+    client = _s3_client(db)
+    paginator = client.get_paginator("list_objects_v2")
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        for obj in page.get("Contents", []):
+            key = obj.get("Key")
+            if not key or key.endswith("/"):
+                continue
+            name = key.split("/")[-1]
+            if not _is_backup_name(name):
+                continue
+            try:
+                target_path = BACKUP_DIR / name
+                if target_path.exists():
+                    result["skipped"] += 1
+                    continue
+                client.download_file(bucket, key, str(target_path))
+                result["copied"] += 1
+            except Exception as e:
+                result["failed"] += 1
+                result["errors"].append(f"{key}: {str(e)}")
+
+    return result
+
+
+def save_backup_to_disk(db: Session) -> SavedBackup:
     """
     Creates an *auto* backup directly under BACKUP_DIR with the requested name:
       auto_gamecubby_YYYYMMDD_HHMMSS.dump
 
-    Returns the Path to the saved file.
+    Returns metadata for the saved backup.
     """
-    target = BACKUP_DIR / _auto_filename()
+    filename = _auto_filename()
+    if _backup_storage_backend(db) == "s3":
+        tmp_dir = tempfile.mkdtemp()
+        tmp_path = Path(tmp_dir) / filename
+        try:
+            _pg_dump_to(tmp_path)
+            size = tmp_path.stat().st_size
+            bucket = _s3_bucket(db)
+            key = _backup_s3_key(db, filename)
+            _s3_client(db).upload_file(str(tmp_path), bucket, key)
+            return SavedBackup(uri=f"s3://{bucket}/{key}", size=size, local_path=None)
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    target = BACKUP_DIR / filename
     _pg_dump_to(target)
-    return target
+    return SavedBackup(uri=str(target), size=target.stat().st_size if target.exists() else 0, local_path=target)
 
 
-def prune_old_backups(retention_days: int) -> List[Path]:
+def prune_old_backups(db: Session, retention_days: int) -> List[str]:
     """
     Prunes old backups according to retention settings.
 
@@ -166,11 +326,30 @@ def prune_old_backups(retention_days: int) -> List[Path]:
     Age is determined using the file’s mtime.
     Returns a list of deleted Paths.
     """
-    deleted: List[Path] = []
+    deleted: List[str] = []
     if retention_days <= 0:
         return deleted
 
     cutoff = _now_utc() - timedelta(days=retention_days)
+
+    if _backup_storage_backend(db) == "s3":
+        bucket = _s3_bucket(db)
+        prefix = _backup_s3_key(db, "auto_gamecubby_")
+        client = _s3_client(db)
+        paginator = client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+            for obj in page.get("Contents", []):
+                key = obj.get("Key")
+                last_modified = obj.get("LastModified")
+                if not key or not key.endswith(".dump") or not key.split("/")[-1].startswith("auto_gamecubby_"):
+                    continue
+                if last_modified and last_modified < cutoff:
+                    try:
+                        client.delete_object(Bucket=bucket, Key=key)
+                        deleted.append(f"s3://{bucket}/{key}")
+                    except Exception:
+                        pass
+        return deleted
 
     def _older_than_cutoff(p: Path) -> bool:
         try:
@@ -183,7 +362,7 @@ def prune_old_backups(retention_days: int) -> List[Path]:
         try:
             if _older_than_cutoff(p):
                 p.unlink(missing_ok=True)
-                deleted.append(p)
+                deleted.append(str(p))
         except Exception:
             pass
 
@@ -192,7 +371,7 @@ def prune_old_backups(retention_days: int) -> List[Path]:
             try:
                 if _older_than_cutoff(p):
                     p.unlink(missing_ok=True)
-                    deleted.append(p)
+                    deleted.append(str(p))
             except Exception:
                 pass
 
@@ -201,7 +380,7 @@ def prune_old_backups(retention_days: int) -> List[Path]:
             try:
                 if _older_than_cutoff(p):
                     p.unlink(missing_ok=True)
-                    deleted.append(p)
+                    deleted.append(str(p))
             except Exception:
                 pass
 
@@ -209,7 +388,7 @@ def prune_old_backups(retention_days: int) -> List[Path]:
             try:
                 if _older_than_cutoff(p):
                     p.unlink(missing_ok=True)
-                    deleted.append(p)
+                    deleted.append(str(p))
             except Exception:
                 pass
 

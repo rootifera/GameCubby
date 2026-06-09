@@ -18,6 +18,15 @@ def first_run(payload: FirstRunRequest, db: Session = Depends(get_db)):
             igdb_client_secret=payload.igdb_client_secret,
             query_limit=payload.query_limit,
             public_downloads_enabled=payload.public_downloads_enabled,  # NEW
+            file_storage_backend=payload.file_storage_backend,
+            backup_storage_backend=payload.backup_storage_backend,
+            s3_bucket=payload.s3_bucket,
+            s3_region=payload.s3_region,
+            s3_endpoint_url=payload.s3_endpoint_url,
+            s3_access_key_id=payload.s3_access_key_id,
+            s3_secret_access_key=payload.s3_secret_access_key,
+            s3_prefix=payload.s3_prefix,
+            s3_presigned_url_expires=payload.s3_presigned_url_expires,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
