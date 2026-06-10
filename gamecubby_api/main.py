@@ -124,9 +124,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 pass
 
             try:
-                fpath = save_backup_to_disk()
-                prune_old_backups(retention_days)
-                print(f"[autobackup] backup saved: {fpath}")
+                with with_db() as db:
+                    saved = save_backup_to_disk(db)
+                    prune_old_backups(db, retention_days)
+                print(f"[autobackup] backup saved: {saved.uri}")
             except Exception as e:
                 print(f"[autobackup] backup failed: {e}")
 

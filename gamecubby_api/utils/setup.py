@@ -12,6 +12,15 @@ def perform_first_run_setup(
         igdb_client_secret: str,
         query_limit: int,
         public_downloads_enabled: bool = False,
+        file_storage_backend: str = "local",
+        backup_storage_backend: str = "local",
+        s3_bucket: str | None = None,
+        s3_region: str | None = None,
+        s3_endpoint_url: str | None = None,
+        s3_access_key_id: str | None = None,
+        s3_secret_access_key: str | None = None,
+        s3_prefix: str | None = None,
+        s3_presigned_url_expires: int = 900,
 ) -> None:
     if get_app_config_value(db, "is_firstrun_done") == "true":
         raise ValueError("Setup already completed")
@@ -32,6 +41,23 @@ def perform_first_run_setup(
         "public_downloads_enabled",
         "true" if public_downloads_enabled else "false",
     )
+
+    file_backend = (file_storage_backend or "local").strip().lower()
+    backup_backend = (backup_storage_backend or "local").strip().lower()
+    if file_backend not in {"local", "s3"}:
+        raise ValueError("File storage backend must be local or s3")
+    if backup_backend not in {"local", "s3"}:
+        raise ValueError("Backup storage backend must be local or s3")
+
+    set_app_config_value(db, "file_storage_backend", file_backend)
+    set_app_config_value(db, "backup_storage_backend", backup_backend)
+    set_app_config_value(db, "s3_bucket", (s3_bucket or "").strip())
+    set_app_config_value(db, "s3_region", (s3_region or "").strip())
+    set_app_config_value(db, "s3_endpoint_url", (s3_endpoint_url or "").strip())
+    set_app_config_value(db, "s3_access_key_id", (s3_access_key_id or "").strip())
+    set_app_config_value(db, "s3_secret_access_key", (s3_secret_access_key or "").strip())
+    set_app_config_value(db, "s3_prefix", (s3_prefix or "").strip().strip("/"))
+    set_app_config_value(db, "s3_presigned_url_expires", str(max(60, int(s3_presigned_url_expires or 900))))
 
     set_app_config_value(db, "is_firstrun_done", "true")
 

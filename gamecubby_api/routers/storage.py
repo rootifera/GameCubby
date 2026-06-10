@@ -11,6 +11,7 @@ from ..utils.storage import (
     upload_and_register_file, sanitize_filename, delete_game_file,
     sync_game_files, sync_all_files, get_downloadable_file, update_file_label
 )
+from ..utils.storage import configured_storage_backend, sync_storage_backends
 from ..utils.auth import get_current_admin, get_current_admin_optional
 from ..utils.app_config import get_app_config_value
 from ..utils.db_tools import with_db
@@ -36,6 +37,7 @@ def list_files(
     game_ref = str(game.igdb_id) if game.igdb_id else "".join(c for c in game.name.lower() if c.isalnum())
 
     q = db.query(GameFile).filter(GameFile.game == game_ref)
+    q = q.filter(GameFile.storage_backend == configured_storage_backend(db))
     if category is not None:
         q = q.filter(GameFile.category == category)
 
@@ -132,6 +134,32 @@ def full_system_sync(
 
     background_tasks.add_task(_run_sync)
     return {"message": "Full filesystem sync started in background."}
+
+
+class StorageBackendSyncRequest(BaseModel):
+    source: str
+    target: str
+
+
+@system_files_router.post("/sync-storage", response_model=dict)
+def copy_between_storage_backends(
+        payload: StorageBackendSyncRequest,
+        background_tasks: BackgroundTasks,
+        admin=Depends(get_current_admin),
+) -> dict:
+    def _run_copy():
+        try:
+            with with_db() as db:
+                results = sync_storage_backends(db, payload.source, payload.target)
+            logger.info(f"Storage backend copy completed. Results: {results}")
+        except Exception as e:
+            logger.error(f"Storage backend copy failed: {str(e)}")
+
+    background_tasks.add_task(_run_copy)
+    return {
+        "status": "started",
+        "detail": f"Copying managed files from {payload.source} to {payload.target} in background.",
+    }
 
 
 @system_files_router.get("/categories", response_model=List[str])

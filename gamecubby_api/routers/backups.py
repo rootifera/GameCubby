@@ -1,18 +1,22 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
 
+from ..db import get_db
 from ..utils.auth import get_current_admin
 from ..utils.backup import (
     create_backup,
     save_backup_to_disk,
     prune_old_backups,
+    list_backups,
+    sync_backup_storage,
 )
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/backup", tags=["Backup"])
 
@@ -24,6 +28,24 @@ async def backup_database():
     Streams a temporary pg_dump file back to the client.
     """
     return create_backup()
+
+
+@router.get("/list", dependencies=[Depends(get_current_admin)])
+async def backup_list(db: Session = Depends(get_db)):
+    return {"ok": True, "files": list_backups(db)}
+
+
+class BackupStorageSyncRequest(BaseModel):
+    source: str
+    target: str
+
+
+@router.post("/sync-storage", dependencies=[Depends(get_current_admin)])
+async def backup_sync_storage(payload: BackupStorageSyncRequest, db: Session = Depends(get_db)):
+    try:
+        return {"ok": True, **sync_backup_storage(db, payload.source, payload.target)}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -41,13 +63,12 @@ def _env_int(name: str, default: int) -> int:
 
 
 @router.post("/save", dependencies=[Depends(get_current_admin)])
-async def backup_save_to_disk():
+async def backup_save_to_disk(db: Session = Depends(get_db)):
     """
     Admin-only endpoint intended for periodic schedulers (e.g. cron/healthcheck).
     Behavior:
-      - If AUTOBACKUPS=no (default in .env), returns a no-op response.
-      - If enabled, writes BACKUP_DIR/gamecubby_DDMMYY.dump (overwrites per day),
-        then prunes backups older than BACKUP_RETENTION_DAYS.
+      - Writes a backup to the configured backup storage backend.
+      - Prunes old auto backups based on BACKUP_RETENTION_DAYS.
 
     Returns JSON with:
       {
@@ -60,32 +81,18 @@ async def backup_save_to_disk():
         "autobackups": true|false
       }
     """
-    autobackups = _env_bool("AUTOBACKUPS", False)
     retention_days = _env_int("BACKUP_RETENTION_DAYS", 14)
 
-    if not autobackups:
-        return {
-            "ok": False,
-            "message": "AUTOBACKUPS is disabled; no action taken.",
-            "saved_path": None,
-            "saved_bytes": 0,
-            "deleted": [],
-            "retention_days": retention_days,
-            "autobackups": False,
-        }
+    saved = save_backup_to_disk(db)
 
-    saved: Path = save_backup_to_disk()
-    size = saved.stat().st_size if saved.exists() else 0
-
-    deleted_paths: List[Path] = prune_old_backups(retention_days)
-    deleted = [str(p) for p in deleted_paths]
+    deleted: List[str] = prune_old_backups(db, retention_days)
 
     return {
         "ok": True,
         "message": "Backup saved and retention pruning completed.",
-        "saved_path": str(saved),
-        "saved_bytes": size,
+        "saved_path": saved.uri,
+        "saved_bytes": saved.size,
         "deleted": deleted,
         "retention_days": retention_days,
-        "autobackups": True,
+        "autobackups": _env_bool("AUTOBACKUPS", False),
     }
