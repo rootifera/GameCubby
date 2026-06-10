@@ -21,6 +21,7 @@ from ..models.playerperspective import PlayerPerspective
 from ..models.company import Company
 from ..models.game_company import GameCompany
 from ..models.storage import GameFile
+from ..utils.storage import _s3_bucket, _s3_client, _s3_uri
 from ..utils.external import get_igdb_token, _get_igdb_credentials
 from typing import List, Optional, cast, Dict, Tuple, Union
 import asyncio
@@ -116,6 +117,86 @@ def _move_local_game_files_for_rename(session: Session, old_ref: str, new_ref: s
         file_record.game = new_ref
         if moved_dir and file_record.path.startswith(old_prefix):
             file_record.path = new_prefix + file_record.path[len(old_prefix):]
+
+
+def _convert_game_file_refs_to_custom(session: Session, old_ref: str, new_ref: str) -> None:
+    """
+    Move managed file records from the IGDB ref layout to the custom-game ref layout.
+    Existing downloads keep working because records are updated in the same transaction.
+    """
+    if not old_ref or not new_ref or old_ref == new_ref:
+        return
+
+    local_old_dir = Path("./storage/uploads/igdb") / old_ref
+    local_new_dir = Path("./storage/uploads/local") / new_ref
+    moved_local_dir = False
+    if local_old_dir.exists() and not local_new_dir.exists():
+        local_new_dir.parent.mkdir(parents=True, exist_ok=True)
+        local_old_dir.rename(local_new_dir)
+        moved_local_dir = True
+
+    local_old_prefix = str(local_old_dir)
+    local_new_prefix = str(local_new_dir)
+
+    s3_client = None
+    s3_bucket = None
+
+    for file_record in session.query(GameFile).filter(GameFile.game == old_ref).all():
+        file_record.game = new_ref
+
+        if (file_record.storage_backend or "local") == "s3":
+            old_key = file_record.object_key
+            if not old_key and (file_record.path or "").startswith("s3://"):
+                old_key = (file_record.path or "").split("/", 3)[3]
+            if not old_key:
+                continue
+
+            parts = old_key.split("/")
+            uploads_idx = parts.index("uploads") if "uploads" in parts else -1
+            if uploads_idx < 0 or len(parts) <= uploads_idx + 4 or parts[uploads_idx + 1] != "igdb":
+                continue
+
+            new_parts = parts[:]
+            new_parts[uploads_idx + 1] = "local"
+            new_parts[uploads_idx + 2] = new_ref
+            new_key = "/".join(new_parts)
+
+            if s3_client is None:
+                s3_client = _s3_client(session)
+                s3_bucket = _s3_bucket(session)
+
+            s3_client.copy_object(
+                Bucket=s3_bucket,
+                CopySource={"Bucket": s3_bucket, "Key": old_key},
+                Key=new_key,
+            )
+            s3_client.delete_object(Bucket=s3_bucket, Key=old_key)
+            file_record.object_key = new_key
+            file_record.path = _s3_uri(s3_bucket, new_key)
+            continue
+
+        path = file_record.path or ""
+        if moved_local_dir and path.startswith(local_old_prefix):
+            file_record.path = local_new_prefix + path[len(local_old_prefix):]
+
+
+def convert_igdb_game_to_custom(session: Session, game_id: int) -> Optional[Game]:
+    game = session.query(Game).filter_by(id=game_id).first()
+    if not game:
+        return None
+    if not game.igdb_id:
+        return game
+
+    old_ref = str(game.igdb_id)
+    new_ref = _local_game_ref(game.name)
+
+    _convert_game_file_refs_to_custom(session, old_ref, new_ref)
+    game.igdb_id = 0
+    game.updated_at = None
+
+    session.commit()
+    session.refresh(game)
+    return game
 
 
 def create_game(session: Session, game_data: dict) -> Game:
