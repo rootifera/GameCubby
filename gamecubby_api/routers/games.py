@@ -20,6 +20,7 @@ from ..utils.game import (
     update_game,
     delete_game,
     add_game_from_igdb,
+    convert_igdb_game_to_custom,
     refresh_game_metadata,
     refresh_all_games_metadata,
     force_refresh_metadata, list_games_preview,
@@ -194,6 +195,14 @@ async def refresh_metadata_endpoint(game_id: int, db: Session = Depends(get_db))
         "message": msg,
         "game": game
     }
+
+
+@router.post("/{game_id}/convert_to_custom", response_model=GameSchema, dependencies=[Depends(get_current_admin)])
+def convert_to_custom_endpoint(game_id: int, db: Session = Depends(get_db)):
+    game = convert_igdb_game_to_custom(db, game_id)
+    if not game:
+        raise HTTPException(404, "Game not found")
+    return game
 
 
 @router.post("/refresh_all_metadata", dependencies=[Depends(get_current_admin)])
