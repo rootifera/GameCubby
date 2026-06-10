@@ -8,7 +8,7 @@ services:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-    ports: ["5432"]
+    # ports: ["5432"]
     volumes:
       - gamecubby_db_data:/var/lib/postgresql/data
     healthcheck:
@@ -28,7 +28,7 @@ services:
     depends_on:
       gamecubby-db:
         condition: service_healthy
-    ports: ["8000"]
+    #ports: ["8000"]
     volumes:
       - ./storage:/app/storage
       - ./storage:/storage

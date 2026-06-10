@@ -2,6 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFi
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from pydantic import BaseModel, constr
+from datetime import datetime, timezone
+from pathlib import Path
+import json
+import os
 
 from ..db import get_db
 from ..models.game import Game
@@ -19,6 +23,35 @@ from ..utils.db_tools import with_db
 import logging
 
 logger = logging.getLogger(__name__)
+
+SYNC_STATUS_FILE = Path(os.getenv("FILE_SYNC_STATUS_FILE", "storage/file_sync_status.json"))
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _read_sync_status() -> dict:
+    try:
+        if SYNC_STATUS_FILE.is_file():
+            return json.loads(SYNC_STATUS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        logger.exception("Failed to read file sync status from %s", SYNC_STATUS_FILE)
+    return {
+        "status": "idle",
+        "detail": "No sync has run yet.",
+        "started_at": None,
+        "finished_at": None,
+        "result": None,
+        "error": None,
+    }
+
+
+def _write_sync_status(payload: dict) -> None:
+    SYNC_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = SYNC_STATUS_FILE.with_suffix(".tmp")
+    tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    tmp_path.replace(SYNC_STATUS_FILE)
 
 router = APIRouter(prefix='/games/{game_id}/files', tags=['Files'])
 system_files_router = APIRouter(prefix='/files', tags=['Scan All Files'])
@@ -124,16 +157,54 @@ def full_system_sync(
         background_tasks: BackgroundTasks,
         admin=Depends(get_current_admin)
 ) -> dict:
+    current = _read_sync_status()
+    if current.get("status") == "running":
+        return {
+            **current,
+            "detail": "Full filesystem sync is already running.",
+        }
+
+    started = {
+        "status": "running",
+        "detail": "Full filesystem sync is running.",
+        "started_at": _utc_now(),
+        "finished_at": None,
+        "result": None,
+        "error": None,
+    }
+    _write_sync_status(started)
+
     def _run_sync():
         try:
             with with_db() as db:
                 results = sync_all_files(db)
+            _write_sync_status({
+                "status": "completed",
+                "detail": "Full filesystem sync completed.",
+                "started_at": started["started_at"],
+                "finished_at": _utc_now(),
+                "result": results,
+                "error": None,
+            })
             logger.info(f"Sync completed. Results: {results}")
         except Exception as e:
-            logger.error(f"Sync failed: {str(e)}")
+            _write_sync_status({
+                "status": "failed",
+                "detail": "Full filesystem sync failed.",
+                "started_at": started["started_at"],
+                "finished_at": _utc_now(),
+                "result": None,
+                "error": str(e),
+            })
+            logger.exception("Sync failed")
 
     background_tasks.add_task(_run_sync)
-    return {"message": "Full filesystem sync started in background."}
+    return started
+
+
+@system_files_router.get("/sync-all/status", response_model=dict)
+def full_system_sync_status(admin=Depends(get_current_admin)) -> dict:
+    return _read_sync_status()
 
 
 class StorageBackendSyncRequest(BaseModel):
