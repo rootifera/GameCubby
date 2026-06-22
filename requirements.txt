@@ -48,7 +48,7 @@ pytest-cov==7.1.0
 python-dateutil
 python-dotenv==1.2.2
 python-jose==3.5.0
-python-multipart==0.0.29
+python-multipart==0.0.32
 pytz
 PyYAML==6.0.3
 requests==2.34.2
