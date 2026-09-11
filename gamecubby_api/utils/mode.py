@@ -1,8 +1,7 @@
-import httpx
 from typing import Optional
 from sqlalchemy.orm import Session
 
-from .external import get_igdb_token, _get_igdb_credentials
+from .external import get_igdb_token, _get_igdb_credentials, _post_with_retry
 from ..models.mode import Mode
 from ..models.game import Game
 
@@ -62,13 +61,9 @@ async def sync_modes(db: Session) -> int:
         "Authorization": f"Bearer {token}"
     }
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            "https://api.igdb.com/v4/game_modes",
-            headers=headers,
-            data="fields id, name; limit 500;"
-        )
-    resp.raise_for_status()
+    resp = await _post_with_retry(
+        "https://api.igdb.com/v4/game_modes", headers=headers, data="fields id, name; limit 500;"
+    )
     modes = resp.json()
 
     for mode in modes:

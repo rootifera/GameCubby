@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import List
-from urllib.parse import urlparse
+from sqlalchemy.engine import make_url
 
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
@@ -71,13 +71,13 @@ def _pg_dump_to(backup_path: Path) -> None:
     Execute pg_dump -Fc to the given absolute file path.
     Uses a temporary PGPASSFILE so the password isn’t exposed on argv.
     """
-    parsed = urlparse(DATABASE_URL)
+    parsed = make_url(DATABASE_URL)
 
     db_user = parsed.username
     db_password = parsed.password
-    db_host = parsed.hostname or "localhost"
+    db_host = parsed.host or "localhost"
     db_port = str(parsed.port or 5432)
-    db_name = parsed.path.lstrip("/")
+    db_name = parsed.database
 
     if not all([db_user, db_password, db_name]):
         raise RuntimeError("Incomplete database connection details")

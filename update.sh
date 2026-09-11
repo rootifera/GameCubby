@@ -62,7 +62,14 @@ checkout_branch() {
   git checkout "${target}"
 }
 
-say "This will SHUT DOWN your services, update code & images, and start them again."
+ensure_clean_worktree() {
+  if [[ -n "$(git status --porcelain)" ]]; then
+    err "Working tree has uncommitted changes. Commit or stash them before updating."
+    exit 1
+  fi
+}
+
+say "This will update code and images, then recreate affected services."
 if ! confirm "Proceed"; then
   warn "Aborted by user."
   exit 0
@@ -71,25 +78,23 @@ fi
 ensure_git_repo
 COMPOSE_CMD="$(choose_compose_cmd)"
 COMPOSE_FILE="$(pick_compose_file)"
+ensure_clean_worktree
 
 say "Using compose file: ${COMPOSE_FILE}"
 say "Using compose command: ${COMPOSE_CMD}"
 
-say "Shutting down services..."
-$COMPOSE_CMD -f "$COMPOSE_FILE" down
-
 say "Switching to ${DEFAULT_BRANCH} (or master fallback) and pulling latest..."
-checkout_branch "${DEFAULT_BRANCH}"
 say "Fetching remote..."
 git fetch --all --prune
+checkout_branch "${DEFAULT_BRANCH}"
 say "Pulling latest..."
 git pull --ff-only
 
 say "Pulling updated images..."
 $COMPOSE_CMD -f "$COMPOSE_FILE" pull
 
-say "Starting services in detached mode..."
-$COMPOSE_CMD -f "$COMPOSE_FILE" up -d
+say "Recreating services with the updated code and images..."
+$COMPOSE_CMD -f "$COMPOSE_FILE" up -d --remove-orphans
 
 if confirm "Do you want to run 'docker system prune -f' to clean unused data?"; then
   warn "Running docker system prune (this removes unused images/containers/networks/build cache)."

@@ -3,8 +3,7 @@ from ..models.company import Company
 from sqlalchemy.orm import Session
 import asyncio
 import os
-import httpx
-from .external import get_igdb_token, _get_igdb_credentials
+from .external import get_igdb_token, _get_igdb_credentials, _post_with_retry
 
 
 def upsert_companies(db: Session, company_data: list[dict]) -> list[Company]:
@@ -36,17 +35,15 @@ async def sync_company_names(db: Session) -> int:
     for company in companies:
         query = f"fields name; where id = {company.id};"
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post("https://api.igdb.com/v4/companies", data=query, headers=headers)
-                resp.raise_for_status()
-                data = resp.json()
-                if data:
-                    name = data[0]["name"]
-                    if company.name != name:
-                        company.name = name
-                        updated += 1
-                else:
-                    print(f"No data found for company ID {company.id}")
+            resp = await _post_with_retry("https://api.igdb.com/v4/companies", data=query, headers=headers)
+            data = resp.json()
+            if data:
+                name = data[0]["name"]
+                if company.name != name:
+                    company.name = name
+                    updated += 1
+            else:
+                print(f"No data found for company ID {company.id}")
         except Exception as e:
             print(f"Failed to sync company ID {company.id}: {e}")
 

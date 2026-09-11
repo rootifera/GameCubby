@@ -17,6 +17,25 @@ from ..models.igdb_tag import IGDBTag
 from ..models.location import Location
 from ..models.game_company import GameCompany  # association obj for companies
 
+DEFAULT_RESULT_LIMIT = 100
+MAX_RESULT_LIMIT = 200
+
+
+def _result_limit(value: str | None) -> int:
+    if value is None:
+        return DEFAULT_RESULT_LIMIT
+    if not value.isdigit() or int(value) < 1:
+        raise HTTPException(status_code=422, detail="Limit must be a positive number")
+    return min(int(value), MAX_RESULT_LIMIT)
+
+
+def _result_offset(value: str | None) -> int:
+    if value is None:
+        return 0
+    if not value.isdigit():
+        raise HTTPException(status_code=422, detail="Offset must be a number")
+    return int(value)
+
 
 def _validate_match_mode(value: str | None, field_name: str = "match_mode") -> str:
     mode = (value or "any").lower()
@@ -79,15 +98,7 @@ def search_games_basic(request: Request) -> list[GameSchema]:
 
         query = query.order_by(func.lower(Game.name))
 
-        if limit:
-            if not limit.isdigit():
-                raise HTTPException(status_code=422, detail="Limit must be a number")
-            query = query.limit(int(limit))
-
-        if offset:
-            if not offset.isdigit():
-                raise HTTPException(status_code=422, detail="Offset must be a number")
-            query = query.offset(int(offset))
+        query = query.limit(_result_limit(limit)).offset(_result_offset(offset))
 
         results = query.all()
 
@@ -310,12 +321,7 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
         else:
             query = query.order_by(func.lower(Game.name))
 
-        lim = qp.get("limit")
-        off = qp.get("offset")
-        if lim and lim.isdigit():
-            query = query.limit(int(lim))
-        if off and off.isdigit():
-            query = query.offset(int(off))
+        query = query.limit(_result_limit(qp.get("limit"))).offset(_result_offset(qp.get("offset")))
 
         results = query.all()
 

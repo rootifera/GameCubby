@@ -5,11 +5,12 @@ from sqlalchemy.orm import Session
 from ..db import get_db
 from ..models.company import Company
 from ..utils.game_company import sync_companies
+from ..utils.auth import get_current_admin
 
 router = APIRouter(prefix="/company", tags=["Company"])
 
 
-@router.post("/sync")
+@router.post("/sync", dependencies=[Depends(get_current_admin)])
 async def sync_companies_endpoint():
     await sync_companies()
     return JSONResponse(content={"message": "Company sync completed"})

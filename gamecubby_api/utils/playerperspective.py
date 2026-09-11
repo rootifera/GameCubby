@@ -1,8 +1,6 @@
-import os
-import httpx
 from sqlalchemy.orm import Session
 from ..models.playerperspective import PlayerPerspective
-from ..utils.external import get_igdb_token, _get_igdb_credentials
+from ..utils.external import get_igdb_token, _get_igdb_credentials, _post_with_retry
 
 
 async def sync_player_perspectives(db: Session) -> int:
@@ -20,13 +18,9 @@ async def sync_player_perspectives(db: Session) -> int:
 
     query = "fields id, name; limit 100;"
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            "https://api.igdb.com/v4/player_perspectives",
-            headers=headers,
-            data=query
-        )
-    resp.raise_for_status()
+    resp = await _post_with_retry(
+        "https://api.igdb.com/v4/player_perspectives", headers=headers, data=query
+    )
 
     data = resp.json()
     for entry in data:

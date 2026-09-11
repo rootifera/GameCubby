@@ -19,6 +19,7 @@ from ..utils.storage import configured_storage_backend, sync_storage_backends
 from ..utils.auth import get_current_admin, get_current_admin_optional
 from ..utils.app_config import get_app_config_value
 from ..utils.db_tools import with_db
+from ..utils.job_lock import try_job_lock
 
 import logging
 
@@ -157,13 +158,6 @@ def full_system_sync(
         background_tasks: BackgroundTasks,
         admin=Depends(get_current_admin)
 ) -> dict:
-    current = _read_sync_status()
-    if current.get("status") == "running":
-        return {
-            **current,
-            "detail": "Full filesystem sync is already running.",
-        }
-
     started = {
         "status": "running",
         "detail": "Full filesystem sync is running.",
@@ -175,28 +169,32 @@ def full_system_sync(
     _write_sync_status(started)
 
     def _run_sync():
-        try:
-            with with_db() as db:
-                results = sync_all_files(db)
-            _write_sync_status({
-                "status": "completed",
-                "detail": "Full filesystem sync completed.",
-                "started_at": started["started_at"],
-                "finished_at": _utc_now(),
-                "result": results,
-                "error": None,
-            })
-            logger.info(f"Sync completed. Results: {results}")
-        except Exception as e:
-            _write_sync_status({
-                "status": "failed",
-                "detail": "Full filesystem sync failed.",
-                "started_at": started["started_at"],
-                "finished_at": _utc_now(),
-                "result": None,
-                "error": str(e),
-            })
-            logger.exception("Sync failed")
+        with try_job_lock("full-file-sync") as acquired:
+            if not acquired:
+                logger.info("Full filesystem sync skipped; another API worker owns the job")
+                return
+            try:
+                with with_db() as db:
+                    results = sync_all_files(db)
+                _write_sync_status({
+                    "status": "completed",
+                    "detail": "Full filesystem sync completed.",
+                    "started_at": started["started_at"],
+                    "finished_at": _utc_now(),
+                    "result": results,
+                    "error": None,
+                })
+                logger.info(f"Sync completed. Results: {results}")
+            except Exception as e:
+                _write_sync_status({
+                    "status": "failed",
+                    "detail": "Full filesystem sync failed.",
+                    "started_at": started["started_at"],
+                    "finished_at": _utc_now(),
+                    "result": None,
+                    "error": str(e),
+                })
+                logger.exception("Sync failed")
 
     background_tasks.add_task(_run_sync)
     return started

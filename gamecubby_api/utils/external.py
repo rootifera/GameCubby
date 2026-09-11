@@ -1,3 +1,5 @@
+import asyncio
+import os
 import httpx
 import time
 from typing import Optional, Tuple
@@ -9,6 +11,34 @@ TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 
 _igdb_token: Optional[str] = None
 _igdb_token_expiry: float = 0
+HTTP_TIMEOUT_SECONDS = float(os.getenv("IGDB_HTTP_TIMEOUT_SECONDS", "15"))
+HTTP_RETRIES = int(os.getenv("IGDB_HTTP_RETRIES", "2"))
+
+
+async def _post_with_retry(url: str, *, headers: dict | None = None, data: str | None = None,
+                           params: dict | None = None) -> httpx.Response:
+    """POST to Twitch/IGDB with bounded retries for transient failures."""
+    timeout = httpx.Timeout(HTTP_TIMEOUT_SECONDS, connect=min(10, HTTP_TIMEOUT_SECONDS))
+    last_error: Exception | None = None
+    for attempt in range(HTTP_RETRIES + 1):
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(url, headers=headers, data=data, params=params)
+            response.raise_for_status()
+            return response
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code not in {429, 500, 502, 503, 504}:
+                raise
+            last_error = exc
+        except httpx.TransportError as exc:
+            last_error = exc
+        if attempt < HTTP_RETRIES:
+            await asyncio.sleep(0.5 * (2 ** attempt))
+    raise RuntimeError(f"IGDB request failed after {HTTP_RETRIES + 1} attempts") from last_error
+
+
+def _escape_search_term(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def _get_igdb_credentials(db: Session) -> Tuple[str, str]:
@@ -32,16 +62,14 @@ async def get_igdb_token() -> str:
 
     client_id, client_secret = _get_configured_igdb_credentials()
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            TOKEN_URL,
-            params={
-                "client_id": client_id,
-                "client_secret": client_secret,
-                "grant_type": "client_credentials",
-            },
-        )
-    resp.raise_for_status()
+    resp = await _post_with_retry(
+        TOKEN_URL,
+        params={
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "grant_type": "client_credentials",
+        },
+    )
     token_data = resp.json()
     _igdb_token = token_data["access_token"]
     expires_in = token_data.get("expires_in", 3600)
@@ -65,9 +93,7 @@ async def fetch_igdb_game(igdb_id: int) -> Optional[dict]:
         f" where id = {igdb_id};"
     )
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(IGDB_URL, data=query, headers=headers)
-    resp.raise_for_status()
+    resp = await _post_with_retry(IGDB_URL, data=query, headers=headers)
     games = resp.json()
     return games[0] if games else None
 
@@ -83,9 +109,7 @@ async def fetch_igdb_collection(game_id: int) -> list[dict]:
 
     COLLECTION_MEMBERSHIP_URL = "https://api.igdb.com/v4/collection_memberships"
     query = f"fields collection; where game = {game_id};"
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(COLLECTION_MEMBERSHIP_URL, data=query, headers=headers)
-    resp.raise_for_status()
+    resp = await _post_with_retry(COLLECTION_MEMBERSHIP_URL, data=query, headers=headers)
     memberships = resp.json()
     collection_ids = [m["collection"] for m in memberships if m.get("collection")]
 
@@ -94,14 +118,15 @@ async def fetch_igdb_collection(game_id: int) -> list[dict]:
 
     COLLECTION_URL = "https://api.igdb.com/v4/collections"
     query = f"fields id, name; where id = ({','.join(str(cid) for cid in collection_ids)});"
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(COLLECTION_URL, data=query, headers=headers)
-    resp.raise_for_status()
+    resp = await _post_with_retry(COLLECTION_URL, data=query, headers=headers)
     collections = resp.json()
     return [{"id": c["id"], "name": c["name"]} for c in collections]
 
 
 async def fetch_igdb_companies(company_ids: list[int]) -> dict[int, str]:
+    if not company_ids:
+        return {}
+
     client_id, _ = _get_configured_igdb_credentials()
     token = await get_igdb_token()
 
@@ -110,17 +135,18 @@ async def fetch_igdb_companies(company_ids: list[int]) -> dict[int, str]:
         "Authorization": f"Bearer {token}",
     }
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            "https://api.igdb.com/v4/companies",
-            headers=headers,
-            data=f"fields id,name; where id = ({','.join(str(cid) for cid in company_ids)});",
-        )
-    resp.raise_for_status()
+    resp = await _post_with_retry(
+        "https://api.igdb.com/v4/companies",
+        headers=headers,
+        data=f"fields id,name; where id = ({','.join(str(cid) for cid in company_ids)});",
+    )
     return {c["id"]: c["name"] for c in resp.json()}
 
 
 async def fetch_igdb_involved_companies(involved_ids: list[int]) -> list[dict]:
+    if not involved_ids:
+        return []
+
     client_id, _ = _get_configured_igdb_credentials()
     token = await get_igdb_token()
 
@@ -129,13 +155,11 @@ async def fetch_igdb_involved_companies(involved_ids: list[int]) -> list[dict]:
         "Authorization": f"Bearer {token}",
     }
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            "https://api.igdb.com/v4/involved_companies",
-            headers=headers,
-            data=f"fields company,developer,publisher,porting,supporting; where id = ({','.join(str(i) for i in involved_ids)});",
-        )
-    resp.raise_for_status()
+    resp = await _post_with_retry(
+        "https://api.igdb.com/v4/involved_companies",
+        headers=headers,
+        data=f"fields company,developer,publisher,porting,supporting; where id = ({','.join(str(i) for i in involved_ids)});",
+    )
     raw = resp.json()
 
     company_ids = [c["company"] for c in raw if "company" in c]
@@ -164,16 +188,12 @@ async def search_igdb_games(name_query: str) -> list[dict]:
     }
 
     igdb_query = (
-        f'search "{name_query}"; '
+        f'search "{_escape_search_term(name_query)}"; '
         "fields id, name, cover.url, first_release_date, summary, platforms.id, platforms.name; "
         "limit 50;"
     )
 
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            "https://api.igdb.com/v4/games",
-            headers=headers,
-            data=igdb_query
-        )
-    response.raise_for_status()
+    response = await _post_with_retry(
+        "https://api.igdb.com/v4/games", headers=headers, data=igdb_query
+    )
     return response.json()

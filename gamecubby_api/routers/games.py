@@ -32,6 +32,7 @@ from ..schemas.platform import Platform as PlatformSchema
 from ..utils.location import get_location_path
 from ..utils.auth import get_current_admin
 from ..utils.db_tools import with_db
+from ..utils.job_lock import try_job_lock
 
 router = APIRouter(prefix="/games", tags=["Games"])
 logger = logging.getLogger(__name__)
@@ -68,13 +69,6 @@ def _write_metadata_refresh_status(payload: dict) -> None:
 
 
 def _start_metadata_refresh(background_tasks: BackgroundTasks, kind: str) -> dict:
-    current = _read_metadata_refresh_status()
-    if current.get("status") == "running":
-        return {
-            **current,
-            "detail": "Metadata refresh is already running.",
-        }
-
     if kind == "force_refresh":
         detail = "Force refresh is running for all IGDB-linked games."
     else:
@@ -92,33 +86,37 @@ def _start_metadata_refresh(background_tasks: BackgroundTasks, kind: str) -> dic
     _write_metadata_refresh_status(started)
 
     def do_refresh():
-        try:
-            with with_db() as db:
-                if kind == "force_refresh":
-                    result = force_refresh_metadata(db)
-                else:
-                    result = refresh_all_games_metadata(db)
-            _write_metadata_refresh_status({
-                "status": "completed",
-                "kind": kind,
-                "detail": "Metadata refresh completed.",
-                "started_at": started["started_at"],
-                "finished_at": _utc_now(),
-                "result": result,
-                "error": None,
-            })
-            logger.info("Metadata refresh completed. kind=%s result=%s", kind, result)
-        except Exception as e:
-            _write_metadata_refresh_status({
-                "status": "failed",
-                "kind": kind,
-                "detail": "Metadata refresh failed.",
-                "started_at": started["started_at"],
-                "finished_at": _utc_now(),
-                "result": None,
-                "error": str(e),
-            })
-            logger.exception("Metadata refresh failed. kind=%s", kind)
+        with try_job_lock("metadata-refresh") as acquired:
+            if not acquired:
+                logger.info("Metadata refresh skipped; another API worker owns the job")
+                return
+            try:
+                with with_db() as db:
+                    if kind == "force_refresh":
+                        result = force_refresh_metadata(db)
+                    else:
+                        result = refresh_all_games_metadata(db)
+                _write_metadata_refresh_status({
+                    "status": "completed",
+                    "kind": kind,
+                    "detail": "Metadata refresh completed.",
+                    "started_at": started["started_at"],
+                    "finished_at": _utc_now(),
+                    "result": result,
+                    "error": None,
+                })
+                logger.info("Metadata refresh completed. kind=%s result=%s", kind, result)
+            except Exception as e:
+                _write_metadata_refresh_status({
+                    "status": "failed",
+                    "kind": kind,
+                    "detail": "Metadata refresh failed.",
+                    "started_at": started["started_at"],
+                    "finished_at": _utc_now(),
+                    "result": None,
+                    "error": str(e),
+                })
+                logger.exception("Metadata refresh failed. kind=%s", kind)
 
     background_tasks.add_task(do_refresh)
     return started

@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert
 from typing import Optional, List
 import secrets
 from ..models.app_config import AppConfig
@@ -44,9 +45,26 @@ def get_or_create_secret_key(db: Session) -> str:
     value = get_app_config_value(db, key)
     if value:
         return value
+
+    # Multiple API workers can reach first-use token validation concurrently on
+    # a fresh database. Use PostgreSQL's conflict handling so exactly one worker
+    # creates the key and every worker returns the persisted winner.
     generated = secrets.token_urlsafe(64)
-    set_app_config_value(db, key, generated)
-    return generated
+    stmt = (
+        insert(AppConfig)
+        .values(key=key, value=generated)
+        .on_conflict_do_nothing(index_elements=[AppConfig.key])
+        .returning(AppConfig.value)
+    )
+    inserted = db.execute(stmt).scalar_one_or_none()
+    db.commit()
+    if inserted:
+        return inserted
+
+    value = get_app_config_value(db, key)
+    if not value:
+        raise RuntimeError("SECRET_KEY could not be created or loaded")
+    return value
 
 def get_or_create_query_limit(db: Session, default: int = 50) -> int:
     key = "QUERY_LIMIT"

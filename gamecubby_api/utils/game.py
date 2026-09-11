@@ -22,11 +22,10 @@ from ..models.company import Company
 from ..models.game_company import GameCompany
 from ..models.storage import GameFile
 from ..utils.storage import _s3_bucket, _s3_client, _s3_uri
-from ..utils.external import get_igdb_token, _get_igdb_credentials
+from ..utils.external import get_igdb_token, _get_igdb_credentials, _post_with_retry
 from typing import List, Optional, cast, Dict, Tuple, Union
 import asyncio
 import os
-import httpx
 from pathlib import Path
 
 
@@ -469,26 +468,22 @@ async def add_game_from_igdb(
             "Authorization": f"Bearer {token}"
         }
 
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                "https://api.igdb.com/v4/involved_companies",
-                headers=headers,
-                data=f"fields company,developer,publisher,porting,supporting; where id = ({','.join(map(str, involved_company_ids))});"
-            )
-            resp.raise_for_status()
-            involved_company_data = resp.json()
+        resp = await _post_with_retry(
+            "https://api.igdb.com/v4/involved_companies",
+            headers=headers,
+            data=f"fields company,developer,publisher,porting,supporting; where id = ({','.join(map(str, involved_company_ids))});",
+        )
+        involved_company_data = resp.json()
 
         company_ids = {c["company"] for c in involved_company_data if "company" in c}
         if company_ids:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(
-                    "https://api.igdb.com/v4/companies",
-                    headers=headers,
-                    data=f"fields id,name; where id = ({','.join(map(str, company_ids))});"
-                )
-                resp.raise_for_status()
-                for c in resp.json():
-                    company_name_map[c["id"]] = c["name"]
+            resp = await _post_with_retry(
+                "https://api.igdb.com/v4/companies",
+                headers=headers,
+                data=f"fields id,name; where id = ({','.join(map(str, company_ids))});",
+            )
+            for c in resp.json():
+                company_name_map[c["id"]] = c["name"]
 
     collection_id = None
     collection_list = await fetch_igdb_collection(igdb_id)
@@ -708,7 +703,7 @@ def force_refresh_metadata(session: Session) -> Dict[str, int]:
 
 
 def list_games_preview(db: Session) -> list[GamePreview]:
-    games = db.query(Game).all()
+    games = db.query(Game).options(selectinload(Game.platforms)).all()
     result = []
 
     for game in games:

@@ -1,7 +1,7 @@
 """add s3 file metadata
 
 Revision ID: 9d1f6a22b7c4
-Revises: 8f2b5a3f7c9e
+Revises: 2f7a1c9b7e10
 Create Date: 2026-06-09 00:00:00
 """
 from alembic import op

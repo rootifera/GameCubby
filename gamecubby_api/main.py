@@ -17,6 +17,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from .utils.playerperspective import sync_player_perspectives
 from .utils.mode import sync_modes
@@ -54,6 +55,7 @@ from .routers.stats import router as stats_router
 from .routers.maintenance import router as maintenance_router
 
 from .utils.db_tools import with_db
+from .utils.job_lock import try_job_lock
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -124,9 +126,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 pass
 
             try:
-                with with_db() as db:
-                    saved = save_backup_to_disk(db)
-                    prune_old_backups(db, retention_days)
+                with try_job_lock("scheduled-backup") as acquired:
+                    if not acquired:
+                        print("[autobackup] skipped; another API worker owns the schedule")
+                        continue
+                    with with_db() as db:
+                        saved = save_backup_to_disk(db)
+                        prune_old_backups(db, retention_days)
                 print(f"[autobackup] backup saved: {saved.uri}")
             except Exception as e:
                 print(f"[autobackup] backup failed: {e}")
@@ -192,6 +198,17 @@ app.include_router(maintenance_router)
 @app.get("/health")
 def health():
     return {"ok": True, "service": "GameCubby API", "maintenance": is_maintenance_enabled()}
+
+
+@app.get("/health/ready")
+def readiness():
+    """Readiness probe: confirm that the API can reach PostgreSQL."""
+    try:
+        with with_db() as db:
+            db.execute(text("SELECT 1"))
+    except Exception:
+        return JSONResponse(status_code=503, content={"ok": False, "service": "GameCubby API", "database": "unavailable"})
+    return {"ok": True, "service": "GameCubby API", "database": "available"}
 
 
 _version_path = Path(__file__).with_name("version.json")
