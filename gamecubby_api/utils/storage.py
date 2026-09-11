@@ -601,14 +601,14 @@ def sync_game_files(
     return added, skipped
 
 
-def sync_all_files(db: Session) -> dict:
+def sync_all_files(db: Session, *, delete_orphans: bool = False) -> dict:
     """
     Scan the whole storage tree and register any files missing in DB.
     Uses content-category folders:
         ./storage/uploads/{igdb|local}/{game_ref}/{category}/<files>
-    Also removes orphaned game folders that no longer exist in DB.
+    Reports orphaned game folders that no longer exist in DB. Deletion is opt-in.
     """
-    results = {"total_added": 0, "total_skipped": 0, "game_results": {}}
+    results = {"total_added": 0, "total_skipped": 0, "game_results": {}, "orphan_folders": []}
     if configured_storage_backend(db) == "s3":
         bucket = _s3_bucket(db)
         prefix = f"{_s3_prefix(db)}/uploads/" if _s3_prefix(db) else "uploads/"
@@ -709,14 +709,15 @@ def sync_all_files(db: Session) -> dict:
 
         for game_dir in platform_path.iterdir():
             if game_dir.is_dir() and game_dir.name not in db_game_refs:
-                logging.info(f"Deleting orphaned folder {game_dir}")
-                rmtree(game_dir)
-
-                orphan_files = db.query(GameFile).filter(GameFile.game == game_dir.name).all()
-                for f in orphan_files:
-                    db.delete(f)
-                db.commit()
-                logging.info(f"Deleted {len(orphan_files)} orphaned file records from DB.")
+                results["orphan_folders"].append(str(game_dir))
+                if delete_orphans:
+                    logging.info("Deleting orphaned folder %s", game_dir)
+                    rmtree(game_dir)
+                    orphan_files = db.query(GameFile).filter(GameFile.game == game_dir.name).all()
+                    for file_record in orphan_files:
+                        db.delete(file_record)
+                    db.commit()
+                    logging.info("Deleted %s orphaned file records from DB.", len(orphan_files))
 
     return results
 

@@ -1,7 +1,6 @@
-import httpx
 from sqlalchemy.orm import Session
 from ..models.genre import Genre
-from ..utils.external import get_igdb_token, _get_igdb_credentials
+from ..utils.external import get_igdb_token, _get_igdb_credentials, _post_with_retry
 
 
 async def sync_genres(db: Session) -> list[dict]:
@@ -16,10 +15,7 @@ async def sync_genres(db: Session) -> list[dict]:
     IGDB_GENRE_URL = "https://api.igdb.com/v4/genres"
     query = "fields id, name; limit 100;"
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(IGDB_GENRE_URL, data=query, headers=headers)
-
-    resp.raise_for_status()
+    resp = await _post_with_retry(IGDB_GENRE_URL, data=query, headers=headers)
     igdb_genres: list[dict] = resp.json()
 
     for genre in igdb_genres:

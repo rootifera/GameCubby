@@ -1,8 +1,6 @@
-import os
-import httpx
 from sqlalchemy.orm import Session
 from ..models.igdb_tag import IGDBTag
-from ..utils.external import get_igdb_token, _get_igdb_credentials
+from ..utils.external import get_igdb_token, _get_igdb_credentials, _post_with_retry
 from collections import defaultdict
 
 TAG_TYPE_ENDPOINTS = {
@@ -39,9 +37,7 @@ async def upsert_igdb_tags(db: Session, tag_numbers: list[int]) -> list[IGDBTag]
         url = f"https://api.igdb.com/v4/{endpoint}"
         query = f"fields id,name; where id = ({','.join(str(i) for i in ids)});"
 
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(url, headers=headers, data=query)
-        resp.raise_for_status()
+        resp = await _post_with_retry(url, headers=headers, data=query)
         results = resp.json()
 
         for obj in results:
