@@ -68,7 +68,7 @@ tzdata
 ujson==5.12.1
 Unidecode==1.4.0
 urllib3==2.7.0
-uvicorn==0.48.0
+uvicorn==0.52.4
 uvloop==0.22.1
 watchfiles==1.2.0
 websockets==16.0
