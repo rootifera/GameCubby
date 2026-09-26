@@ -3,7 +3,7 @@ from ..models.platform import Platform
 from typing import Optional
 
 
-def upsert_platform(session: Session, platform_data: dict) -> Platform:
+def upsert_platform(session: Session, platform_data: dict, *, commit: bool = True) -> Platform:
     """
     Insert or update a platform in the DB.
     platform_data: dict with 'id', 'name', and (optional) 'slug'.
@@ -18,12 +18,15 @@ def upsert_platform(session: Session, platform_data: dict) -> Platform:
         if platform.slug != platform_data.get("slug"):
             platform.slug = platform_data.get("slug")
             changed = True
-        if changed:
+        if changed and commit:
             session.commit()
     else:
         platform = Platform(**platform_data)
         session.add(platform)
-        session.commit()
+        if commit:
+            session.commit()
+        else:
+            session.flush()
     return platform
 
 

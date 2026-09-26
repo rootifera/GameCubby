@@ -75,6 +75,7 @@ class GameCreate(BaseModel):
     collection_id: Optional[int] = None
     tag_ids: Optional[List[Union[int, str]]] = Field(default_factory=list)
     company_ids: Optional[List[int]] = Field(default_factory=list)
+    wishlist_id: int | None = Field(default=None, gt=0)
 
     class Config:
         from_attributes = True
@@ -105,6 +106,7 @@ class AddGameFromIGDBRequest(BaseModel):
     tag_ids: list[Union[int, str]] = Field(default_factory=list)  # <-- changed here
     condition: int | None = None
     order: int | None = None
+    wishlist_id: int | None = Field(default=None, gt=0)
 
 
 class PlatformPreview(BaseModel):
@@ -126,6 +128,10 @@ class GamePreview(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class GameCreateResponse(Game):
+    matching_wishlist_ids: List[int] = Field(default_factory=list)
 
 
 class GameIdName(BaseModel):

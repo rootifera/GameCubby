@@ -75,6 +75,20 @@ Source snapshot:
 | `GET /stats/health/tag` | Health drilldown | Returns object with `ids`. |
 | `POST /stats/force_refresh` | Force refresh button | Requires admin bearer. |
 
+## Wishlist
+
+| API endpoint | WebUI usage | Contract notes |
+| --- | --- | --- |
+| `GET /wishlist/` | Wishlist page | Public active entries by default. Use `status=in_library` or `include_resolved=true` to retrieve resolved entries. Each entry includes `status` and `library_game_id`. |
+| `GET /wishlist/{wishlist_id}` | Wishlist detail/edit page | Public item lookup. |
+| `POST /wishlist/` | Manual wishlist entry | Requires admin bearer. Accepts name, optional IGDB ID/year/cover, platform IDs, and labelled links. |
+| `PUT /wishlist/{wishlist_id}` | Wishlist edit | Requires admin bearer. Replaces platforms and links when supplied. |
+| `DELETE /wishlist/{wishlist_id}` | Remove wishlist entry | Requires admin bearer. |
+| `POST /wishlist/from_igdb` | Add from IGDB search | Requires admin bearer. Stores lightweight IGDB details and selected platforms. |
+| `POST /wishlist/{wishlist_id}/resolve` | Explicit reconciliation | Requires admin bearer. Body is `{ "game_id": 123 }`; atomically marks an active entry `in_library` without deleting it. |
+| `POST /wishlist/{wishlist_id}/purchase` | Legacy Purchased button | Requires admin bearer. Uses normal game creation internally, then marks the entry `in_library`. |
+| `POST /games/`, `POST /games/from_igdb` | Add Game form | Optional `wishlist_id` atomically creates the normal game and resolves that active Wishlist entry. Successful IGDB responses include `matching_wishlist_ids` for exact active IGDB-ID matches when no `wishlist_id` is supplied. |
+
 ## Auth And Settings
 
 | API endpoint | WebUI usage | Contract notes |

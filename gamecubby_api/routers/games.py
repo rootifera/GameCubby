@@ -12,7 +12,7 @@ from ..schemas.game import (
     GameCreate,
     GameUpdate,
     AssignLocationRequest,
-    AddGameFromIGDBRequest, GamePreview,
+    AddGameFromIGDBRequest, GameCreateResponse, GamePreview,
 )
 from ..utils.game import (
     get_game,
@@ -23,7 +23,13 @@ from ..utils.game import (
     convert_igdb_game_to_custom,
     refresh_game_metadata,
     refresh_all_games_metadata,
-    force_refresh_metadata, list_games_preview,
+    force_refresh_metadata, list_games_preview, create_game_and_resolve_wishlist,
+    add_igdb_game_and_resolve_wishlist,
+)
+from ..utils.wishlist import (
+    WishlistAlreadyResolvedError,
+    WishlistNotFoundError,
+    active_wishlist_ids_for_igdb,
 )
 from ..utils.game_tag import attach_tag, detach_tag, list_tags_for_game
 from ..utils.game_platform import attach_platform, detach_platform, list_platforms_for_game
@@ -154,19 +160,37 @@ def remove_game(game_id: int, db: Session = Depends(get_db)):
     return True
 
 
-@router.post("/from_igdb", response_model=GameSchema, dependencies=[Depends(get_current_admin)])
+@router.post("/from_igdb", response_model=GameCreateResponse, dependencies=[Depends(get_current_admin)])
 async def add_game_from_igdb_endpoint(req: AddGameFromIGDBRequest, db: Session = Depends(get_db)):
-    game = await add_game_from_igdb(
-        db,
-        igdb_id=req.igdb_id,
-        platform_ids=req.platform_ids,
-        location_id=req.location_id,
-        tag_ids=req.tag_ids,
-        condition=req.condition,
-        order=req.order,
-    )
+    try:
+        if req.wishlist_id:
+            game = await add_igdb_game_and_resolve_wishlist(
+                db,
+                wishlist_id=req.wishlist_id,
+                igdb_id=req.igdb_id,
+                platform_ids=req.platform_ids,
+                location_id=req.location_id,
+                tag_ids=req.tag_ids,
+                condition=req.condition,
+                order=req.order,
+            )
+        else:
+            game = await add_game_from_igdb(
+                db,
+                igdb_id=req.igdb_id,
+                platform_ids=req.platform_ids,
+                location_id=req.location_id,
+                tag_ids=req.tag_ids,
+                condition=req.condition,
+                order=req.order,
+            )
+    except WishlistNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except WishlistAlreadyResolvedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     if not game:
         raise HTTPException(404, "Game not found on IGDB")
+    game.matching_wishlist_ids = [] if req.wishlist_id else active_wishlist_ids_for_igdb(db, req.igdb_id)
     return game
 
 
@@ -178,9 +202,21 @@ def get_game_location_path(game_id: int, db: Session = Depends(get_db)):
     return {"location_path": path}
 
 
-@router.post("/", response_model=GameSchema, dependencies=[Depends(get_current_admin)])
+@router.post("/", response_model=GameCreateResponse, dependencies=[Depends(get_current_admin)])
 def add_game(game: GameCreate, db: Session = Depends(get_db)):
-    return create_game(db, game.model_dump())
+    data = game.model_dump()
+    wishlist_id = data.pop("wishlist_id", None)
+    try:
+        created = (
+            create_game_and_resolve_wishlist(db, data, wishlist_id)
+            if wishlist_id else create_game(db, data)
+        )
+    except WishlistNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except WishlistAlreadyResolvedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    created.matching_wishlist_ids = []
+    return created
 
 
 @router.post("/{game_id}/refresh_metadata", dependencies=[Depends(get_current_admin)])

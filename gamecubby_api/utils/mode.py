@@ -6,7 +6,7 @@ from ..models.mode import Mode
 from ..models.game import Game
 
 
-def upsert_mode(db: Session, mode_id: int, name: str) -> Mode:
+def upsert_mode(db: Session, mode_id: int, name: str, *, commit: bool = True) -> Mode:
     """
     Insert or update a game mode by ID and name.
     """
@@ -14,11 +14,15 @@ def upsert_mode(db: Session, mode_id: int, name: str) -> Mode:
     if not mode:
         mode = Mode(id=mode_id, name=name)
         db.add(mode)
-        db.commit()
-        db.refresh(mode)
+        if commit:
+            db.commit()
+            db.refresh(mode)
+        else:
+            db.flush()
     elif mode.name != name:
         mode.name = name
-        db.commit()
+        if commit:
+            db.commit()
     return mode
 
 

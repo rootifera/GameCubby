@@ -7,6 +7,7 @@ refuses to run unless RUN_POSTGRES_INTEGRATION=1 is set.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -118,3 +119,85 @@ def test_live_api_uses_database_for_readiness_auth_and_bounded_search():
     assert len(paged_results) == 5
     assert client.get("/search/basic?name=Integration+Game&limit=0").status_code == 422
 
+
+def _admin_headers(client: TestClient) -> dict[str, str]:
+    response = client.post(
+        "/auth/login",
+        json={"username": "integration-admin", "password": "integration-password"},
+    )
+    assert response.status_code == 200
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+def test_live_api_exercises_backup_restore_guard_and_maintenance_mode():
+    _setup()
+    client = TestClient(app)
+    headers = _admin_headers(client)
+
+    # Saved backups use the configured local backend during the disposable test.
+    saved = client.post("/backup/save", headers=headers)
+    assert saved.status_code == 200
+    body = saved.json()
+    assert body["ok"] is True
+    assert body["saved_bytes"] > 0
+    saved_path = Path(body["saved_path"])
+    assert saved_path.exists()
+
+    streamed = client.get("/backup/", headers=headers)
+    assert streamed.status_code == 200
+    assert streamed.content.startswith(b"PGDMP")
+
+    assert client.post("/admin/maintenance/enter").status_code == 200
+    assert client.get("/health").status_code == 200
+    assert client.get("/games/").status_code == 503
+    assert client.post("/admin/maintenance/exit").status_code == 200
+    assert client.get("/games/").status_code == 200
+
+    saved_path.unlink(missing_ok=True)
+
+
+def test_live_api_exercises_manual_game_storage_and_wishlist_lifecycle(tmp_path, monkeypatch):
+    _setup()
+    monkeypatch.setattr(storage, "STORAGE_ROOT", tmp_path)
+    monkeypatch.setattr(storage, "UPLOADS_DIR", tmp_path / "uploads")
+    client = TestClient(app)
+    headers = _admin_headers(client)
+
+    tag = client.post("/tags/?name=integration-tag", headers=headers)
+    assert tag.status_code == 200
+    location = client.post("/locations/?name=Integration+Shelf&type=shelf", headers=headers)
+    assert location.status_code == 200
+    game = client.post("/games/", headers=headers, json={
+        "name": "Integration Manual Game",
+        "location_id": location.json()["id"],
+        "tag_ids": [tag.json()["id"]],
+    })
+    assert game.status_code == 200
+    game_id = game.json()["id"]
+
+    uploaded = client.post(
+        f"/games/{game_id}/files/upload",
+        headers=headers,
+        data={"label": "Integration save", "category": "saves"},
+        files={"file": ("save.sav", b"integration-save", "application/octet-stream")},
+    )
+    assert uploaded.status_code == 200
+    file_id = uploaded.json()["file_id"]
+    assert client.get(f"/games/{game_id}/files/").status_code == 200
+    assert client.patch(
+        f"/games/{game_id}/files/{file_id}/label",
+        headers=headers,
+        json={"label": "Renamed save"},
+    ).status_code == 200
+    assert client.delete(f"/games/{game_id}/files/{file_id}", headers=headers).status_code == 204
+
+    wishlist = client.post("/wishlist/", headers=headers, json={"name": "Wanted Game"})
+    assert wishlist.status_code == 200
+    wishlist_id = wishlist.json()["id"]
+    resolved = client.post(
+        f"/wishlist/{wishlist_id}/resolve", headers=headers, json={"game_id": game_id}
+    )
+    assert resolved.status_code == 200
+    assert resolved.json()["status"] == "in_library"
+    assert client.get("/wishlist/").json() == []
+    assert client.get("/wishlist/?status=in_library").json()[0]["id"] == wishlist_id
