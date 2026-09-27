@@ -32,6 +32,7 @@ APPLICATION_OPERATIONS = {
     "GET /stats/health/location", "GET /stats/health/platform", "GET /stats/health/release_year",
     "GET /stats/health/tag", "GET /stats/overview", "GET /tags/", "GET /tags/{tag_id}",
     "GET /wishlist/", "GET /wishlist/{wishlist_id}", "PATCH /games/{game_id}/files/{file_id}/label",
+    "GET /purchase-link-shortcuts/",
     "POST /admin/maintenance/enter", "POST /admin/maintenance/exit", "POST /app_config/",
     "POST /auth/change-password", "POST /auth/login", "POST /backup/save",
     "POST /backup/sync-storage", "POST /company/sync", "POST /files/sync-all",
@@ -42,8 +43,11 @@ APPLICATION_OPERATIONS = {
     "POST /games/{game_id}/refresh_metadata", "POST /genres/sync", "POST /locations/",
     "POST /locations/migrate", "POST /modes/sync", "POST /perspectives/sync",
     "POST /stats/force_refresh", "POST /tags/", "POST /wishlist/", "POST /wishlist/from_igdb",
+    "POST /purchase-link-shortcuts/",
     "POST /wishlist/{wishlist_id}/purchase", "POST /wishlist/{wishlist_id}/resolve",
     "PUT /games/{game_id}", "PUT /locations/{location_id}/rename", "PUT /wishlist/{wishlist_id}",
+    "PUT /purchase-link-shortcuts/{shortcut_id}", "PUT /purchase-link-shortcuts/reorder",
+    "DELETE /purchase-link-shortcuts/{shortcut_id}",
 }
 
 

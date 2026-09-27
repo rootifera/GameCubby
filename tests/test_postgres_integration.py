@@ -417,3 +417,44 @@ def test_live_api_exercises_file_system_and_metadata_jobs(tmp_path, monkeypatch)
     assert client.post("/auth/change-password", headers=headers, json={"current_password": "wrong", "new_password": "new-password"}).status_code == 401
     assert client.post("/auth/change-password", headers=headers, json={"current_password": "integration-password", "new_password": "new-password"}).status_code == 200
     assert client.post("/auth/login", json={"username": "integration-admin", "password": "new-password"}).status_code == 200
+
+
+def test_live_api_exercises_purchase_link_shortcut_management():
+    _setup()
+    client = TestClient(app)
+    headers = _admin_headers(client)
+    base = "/purchase-link-shortcuts/"
+
+    # Every management operation is admin-only.
+    assert client.get(base).status_code in {401, 403}
+    assert client.post(base, json={"label": "eBay"}).status_code in {401, 403}
+    assert client.put(f"{base}reorder", json={"items": [{"id": 1, "sort_order": 1}]}).status_code in {401, 403}
+    assert client.put(f"{base}1", json={"sort_order": 1}).status_code in {401, 403}
+    assert client.delete(f"{base}1").status_code in {401, 403}
+
+    assert client.post(base, headers=headers, json={"label": "   "}).status_code == 422
+    assert client.post(base, headers=headers, json={"label": "x" * 101}).status_code == 422
+    ebay = client.post(base, headers=headers, json={"label": " eBay ", "sort_order": 10})
+    assert ebay.status_code == 201
+    assert ebay.json()["label"] == "eBay"
+    assert client.post(base, headers=headers, json={"label": " EBAY "}).status_code == 409
+    cex = client.post(base, headers=headers, json={"label": "CeX", "sort_order": 20}).json()
+    local = client.post(base, headers=headers, json={"label": "Local shop", "sort_order": 5}).json()
+    assert [item["label"] for item in client.get(base, headers=headers).json()] == ["Local shop", "eBay", "CeX"]
+
+    updated = client.put(f"{base}{ebay.json()['id']}", headers=headers, json={"label": "eBay UK", "sort_order": 30})
+    assert updated.status_code == 200
+    assert updated.json()["label"] == "eBay UK"
+    reordered = client.put(base + "reorder", headers=headers, json={"items": [
+        {"id": cex["id"], "sort_order": 1}, {"id": local["id"], "sort_order": 2},
+    ]})
+    assert reordered.status_code == 200
+    assert [item["id"] for item in reordered.json()][:2] == [cex["id"], local["id"]]
+    assert client.put(base + "reorder", headers=headers, json={"items": [{"id": 999, "sort_order": 1}]}).status_code == 404
+
+    wishlist = client.post("/wishlist/", headers=headers, json={
+        "name": "Linked Wishlist Game", "links": [{"label": "eBay UK", "url": "https://example.test/ebay"}],
+    })
+    assert wishlist.status_code == 200
+    assert client.delete(f"{base}{ebay.json()['id']}", headers=headers).status_code == 204
+    assert client.get(f"/wishlist/{wishlist.json()['id']}").json()["links"][0]["label"] == "eBay UK"
