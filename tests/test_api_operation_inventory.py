@@ -52,11 +52,11 @@ APPLICATION_OPERATIONS = {
 
 
 def test_application_operation_inventory_is_complete():
+    openapi = app.openapi()
     actual = {
-        f"{method} {route.path}"
-        for route in app.routes
-        for method in getattr(route, "methods", set())
-        if method not in {"HEAD", "OPTIONS"}
-        and route.path not in {"/docs", "/docs/oauth2-redirect", "/openapi.json", "/redoc"}
+        f"{method.upper()} {path}"
+        for path, methods in openapi["paths"].items()
+        for method in methods
+        if method.upper() not in {"HEAD", "OPTIONS"}
     }
     assert actual == APPLICATION_OPERATIONS
