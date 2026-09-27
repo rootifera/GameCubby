@@ -12,6 +12,15 @@ It’s designed for collectors who want to organize their libraries in a flexibl
 - **Advanced Search** – Search by name, platform, year, tags, genres, and more.  
 - **Admin Tools** – Manage games, locations, files, backups, and updates.
 
+## Purchase-link shortcut API
+
+Admin clients can manage reusable Wishlist purchase-link labels at
+`/purchase-link-shortcuts/`. `GET` lists labels ordered by `sort_order` and
+label; `POST` creates a label; `PUT /{shortcut_id}` updates one; `DELETE
+/{shortcut_id}` removes one; and `PUT /reorder` atomically updates the order
+of a supplied set of IDs. Shortcuts contain only a label and ordering value;
+they never modify existing Wishlist links.
+
 ## Documentation
 
 For installation, setup, and detailed usage, please see the **[GameCubby Wiki](https://github.com/rootifera/GameCubby/wiki)**.  

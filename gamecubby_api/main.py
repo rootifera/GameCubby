@@ -53,6 +53,8 @@ from .routers.export import router as export_router
 from .routers.backups import router as backups_router
 from .routers.stats import router as stats_router
 from .routers.maintenance import router as maintenance_router
+from .routers.wishlist import router as wishlist_router
+from .routers.purchase_link_shortcuts import router as purchase_link_shortcuts_router
 
 from .utils.db_tools import with_db
 from .utils.job_lock import try_job_lock
@@ -193,6 +195,8 @@ app.include_router(export_router)
 app.include_router(backups_router)
 app.include_router(stats_router)
 app.include_router(maintenance_router)
+app.include_router(wishlist_router)
+app.include_router(purchase_link_shortcuts_router)
 
 
 @app.get("/health")

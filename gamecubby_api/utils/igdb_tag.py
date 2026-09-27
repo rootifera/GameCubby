@@ -10,7 +10,7 @@ TAG_TYPE_ENDPOINTS = {
 
 
 
-async def upsert_igdb_tags(db: Session, tag_numbers: list[int]) -> list[IGDBTag]:
+async def upsert_igdb_tags(db: Session, tag_numbers: list[int], *, commit: bool = True) -> list[IGDBTag]:
     if not tag_numbers:
         return []
 
@@ -51,5 +51,6 @@ async def upsert_igdb_tags(db: Session, tag_numbers: list[int]) -> list[IGDBTag]
             existing_map[tag_number] = tag
             new_tags.append(tag)
 
-    db.commit()
+    if commit:
+        db.commit()
     return [existing_map[tag] for tag in tag_numbers if tag in existing_map]

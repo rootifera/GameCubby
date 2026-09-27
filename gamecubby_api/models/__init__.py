@@ -21,3 +21,5 @@ from .game_genre import game_genres
 from .game_playerperspective import game_playerperspectives
 from .igdb_tag import IGDBTag, game_igdb_tags
 from .app_config import AppConfig
+from .wishlist import WishlistItem, WishlistLink, wishlist_platforms
+from .purchase_link_shortcut import PurchaseLinkShortcut

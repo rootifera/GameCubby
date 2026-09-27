@@ -27,6 +27,18 @@ from typing import List, Optional, cast, Dict, Tuple, Union
 import asyncio
 import os
 from pathlib import Path
+from contextlib import contextmanager
+
+
+@contextmanager
+def _transaction(session: Session):
+    """Use a transaction or savepoint when a caller has already read from the session."""
+    if session.in_transaction():
+        with session.begin_nested():
+            yield
+    else:
+        with session.begin():
+            yield
 
 
 def get_game(session: Session, game_id: int) -> Optional[Game]:
@@ -198,7 +210,7 @@ def convert_igdb_game_to_custom(session: Session, game_id: int) -> Optional[Game
     return game
 
 
-def create_game(session: Session, game_data: dict) -> Game:
+def create_game(session: Session, game_data: dict, *, commit: bool = True) -> Game:
     if game_data.get("location_id") in (None, 0):
         game_data["location_id"] = get_default_location_id(session)
 
@@ -256,8 +268,11 @@ def create_game(session: Session, game_data: dict) -> Game:
         companies = session.query(Company).filter(Company.id.in_(company_ids)).all()
         game.companies = [GameCompany(company=c) for c in companies]
 
-    session.commit()
-    session.refresh(game)
+    if commit:
+        session.commit()
+        session.refresh(game)
+    else:
+        session.flush()
     return game
 
 
@@ -439,7 +454,9 @@ async def add_game_from_igdb(
     location_id: Optional[int] = None,
     tag_ids: list[Union[int, str]] = [],
     condition: Optional[int] = None,
-    order: Optional[int] = None
+    order: Optional[int] = None,
+    *,
+    commit: bool = True,
 ) -> Optional[Game]:
     raw = await fetch_igdb_game(igdb_id)
     if not raw:
@@ -454,7 +471,7 @@ async def add_game_from_igdb(
     updated_at = raw.get("updated_at")
 
     igdb_tag_ids = raw.get("tags", [])
-    tags = await upsert_igdb_tags(session, igdb_tag_ids)
+    tags = await upsert_igdb_tags(session, igdb_tag_ids, commit=commit)
 
     involved_company_ids = raw.get("involved_companies", [])
     involved_company_data = []
@@ -493,8 +510,11 @@ async def add_game_from_igdb(
         if not collection:
             collection = Collection(igdb_id=data["id"], name=data["name"])
             session.add(collection)
-            session.commit()
-            session.refresh(collection)
+            if commit:
+                session.commit()
+                session.refresh(collection)
+            else:
+                session.flush()
         collection_id = collection.id
 
     final_location_id = location_id if location_id not in (None, 0) else get_default_location_id(session)
@@ -519,7 +539,7 @@ async def add_game_from_igdb(
         mode_name = mode_item.get("name") if isinstance(mode_item, dict) else ""
         mode = session.query(Mode).filter_by(id=mode_id).first()
         if not mode:
-            mode = upsert_mode(session, mode_id, mode_name or "")
+            mode = upsert_mode(session, mode_id, mode_name or "", commit=commit)
         if mode and mode not in game.modes:
             game.modes.append(mode)
 
@@ -533,7 +553,7 @@ async def add_game_from_igdb(
     for platform_id in platform_ids:
         platform = session.query(Platform).filter_by(id=platform_id).first()
         if not platform and platform_id in igdb_platforms:
-            platform = upsert_platform(session, igdb_platforms[platform_id])
+            platform = upsert_platform(session, igdb_platforms[platform_id], commit=commit)
         if platform and platform not in game.platforms:
             game.platforms.append(platform)
 
@@ -598,7 +618,97 @@ async def add_game_from_igdb(
         )
         game.companies.append(link)
 
-    session.commit()
+    if commit:
+        session.commit()
+        session.refresh(game)
+    else:
+        session.flush()
+    return game
+
+
+def create_game_and_resolve_wishlist(session: Session, game_data: dict, wishlist_id: int) -> Game:
+    """Create a manual game and resolve its active Wishlist item in one transaction."""
+    from .wishlist import resolve_wishlist_item
+
+    with _transaction(session):
+        game = create_game(session, game_data, commit=False)
+        resolve_wishlist_item(session, wishlist_id, game.id, commit=False)
+    session.refresh(game)
+    return game
+
+
+async def add_igdb_game_and_resolve_wishlist(
+    session: Session,
+    *,
+    wishlist_id: int,
+    igdb_id: int,
+    platform_ids: list[int],
+    location_id: Optional[int] = None,
+    tag_ids: list[Union[int, str]] | None = None,
+    condition: Optional[int] = None,
+    order: Optional[int] = None,
+) -> Optional[Game]:
+    """Create an IGDB game and resolve its active Wishlist item in one transaction."""
+    from .wishlist import resolve_wishlist_item
+
+    with _transaction(session):
+        game = await add_game_from_igdb(
+            session,
+            igdb_id=igdb_id,
+            platform_ids=platform_ids,
+            location_id=location_id,
+            tag_ids=tag_ids or [],
+            condition=condition,
+            order=order,
+            commit=False,
+        )
+        if not game:
+            return None
+        resolve_wishlist_item(session, wishlist_id, game.id, commit=False)
+    session.refresh(game)
+    return game
+
+
+async def purchase_wishlist_item(
+    session: Session,
+    *,
+    wishlist_id: int,
+    location_id: Optional[int] = None,
+    condition: Optional[int] = None,
+    order: Optional[int] = None,
+    tag_ids: list[Union[int, str]] | None = None,
+) -> Game:
+    """Use the normal creation services to purchase and resolve a Wishlist item atomically."""
+    from .wishlist import active_wishlist_item_for_update, resolve_wishlist_item
+
+    with _transaction(session):
+        item = active_wishlist_item_for_update(session, wishlist_id)
+        platform_ids = [platform.id for platform in item.platforms]
+        if item.igdb_id:
+            game = await add_game_from_igdb(
+                session,
+                igdb_id=item.igdb_id,
+                platform_ids=platform_ids,
+                location_id=location_id,
+                tag_ids=tag_ids or [],
+                condition=condition,
+                order=order,
+                commit=False,
+            )
+            if not game:
+                raise LookupError("Game not found on IGDB")
+        else:
+            game = create_game(session, {
+                "name": item.name,
+                "release_date": item.release_year,
+                "cover_url": item.cover_url,
+                "platform_ids": platform_ids,
+                "location_id": location_id,
+                "condition": condition,
+                "order": order,
+                "tag_ids": tag_ids or [],
+            }, commit=False)
+        resolve_wishlist_item(session, wishlist_id, game.id, commit=False)
     session.refresh(game)
     return game
 
