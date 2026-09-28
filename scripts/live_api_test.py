@@ -564,7 +564,7 @@ if _igdb_game:
     r = post(f"/games/{_cover_test_id}/cover/cache", headers=auth())
     check(
         "POST /games/{id}/cover/cache is idempotent (already cached)",
-        r.status_code == 200 and r.json().get("cached") is False,
+        r.status_code == 200 and r.json().get("cached") is True,
     )
 
     # delete the cached cover

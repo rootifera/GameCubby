@@ -1,5 +1,6 @@
 import re
 import os
+import asyncio
 from pathlib import Path
 from typing import List, Tuple, Optional
 from urllib.parse import urlparse
@@ -900,9 +901,13 @@ async def serve_game_cover(db: Session, game: Game) -> Response:
     raise HTTPException(404, "No cover image available for this game")
 
 
+_COVER_SYNC_CONCURRENCY = 10
+
+
 async def sync_all_game_covers(db: Session) -> dict:
     """
     Download IGDB covers for all games that don't already have a cached copy.
+    Downloads run concurrently (up to _COVER_SYNC_CONCURRENCY at a time).
     Returns statistics: total, cached (newly downloaded), already_cached, failed, failed_game_ids.
     """
     games = (
@@ -917,17 +922,27 @@ async def sync_all_game_covers(db: Session) -> dict:
         "failed": 0,
         "failed_game_ids": [],
     }
-    for game in games:
-        if game.cover_cached:
-            result["already_cached"] += 1
-            continue
-        if await download_and_store_cover(db, game):
+
+    to_process = [g for g in games if not g.cover_cached]
+    result["already_cached"] = len(games) - len(to_process)
+
+    semaphore = asyncio.Semaphore(_COVER_SYNC_CONCURRENCY)
+
+    async def _fetch_one(game: Game) -> tuple[Game, bool]:
+        async with semaphore:
+            return game, await download_and_store_cover(db, game)
+
+    outcomes = await asyncio.gather(*[_fetch_one(g) for g in to_process])
+
+    for game, success in outcomes:
+        if success:
             game.cover_cached = True
-            db.commit()
             result["cached"] += 1
         else:
             result["failed"] += 1
             result["failed_game_ids"].append(game.id)
+
+    db.commit()
     return result
 
 

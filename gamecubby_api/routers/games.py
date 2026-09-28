@@ -337,7 +337,7 @@ async def cache_cover(game_id: int, db: Session = Depends(get_db)):
     if not game.cover_url:
         raise HTTPException(400, "Game has no IGDB cover URL to download")
     if game.cover_cached:
-        return {"game_id": game_id, "cached": False, "message": "Cover is already cached."}
+        return {"game_id": game_id, "cached": True, "message": "Cover is already cached."}
     success = await download_and_store_cover(db, game)
     if success:
         game.cover_cached = True
