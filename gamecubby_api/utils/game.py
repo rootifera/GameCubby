@@ -21,7 +21,7 @@ from ..models.playerperspective import PlayerPerspective
 from ..models.company import Company
 from ..models.game_company import GameCompany
 from ..models.storage import GameFile
-from ..utils.storage import _s3_bucket, _s3_client, _s3_uri, cache_game_cover
+from ..utils.storage import _s3_bucket, _s3_client, _s3_uri
 from ..utils.external import get_igdb_token, _get_igdb_credentials, _post_with_retry
 from typing import List, Optional, cast, Dict, Tuple, Union
 import asyncio
@@ -621,7 +621,6 @@ async def add_game_from_igdb(
     if commit:
         session.commit()
         session.refresh(game)
-        await cache_game_cover(session, game)
     else:
         session.flush()
     return game
@@ -736,6 +735,7 @@ async def refresh_game_metadata(session: Session, game_id: int) -> Tuple[Optiona
     if igdb_updated_at is None:
         return game, False, "IGDB game missing updated_at."
 
+    print(f"Local updated_at: {game.updated_at}, IGDB updated_at: {igdb_updated_at}")
     if game.updated_at == igdb_updated_at:
         return game, False, "Already up to date."
 
@@ -760,48 +760,7 @@ async def refresh_game_metadata(session: Session, game_id: int) -> Tuple[Optiona
 
     session.commit()
     session.refresh(game)
-    await cache_game_cover(session, game)
     return game, True, "Game metadata updated from IGDB."
-
-
-async def get_game_metadata_update_status(session: Session, game_id: int) -> Tuple[Optional[Game], dict]:
-    """Check IGDB's timestamp for one game without changing local metadata."""
-    game = session.query(Game).filter_by(id=game_id).first()
-    if not game:
-        return None, {"message": "Game not found."}
-
-    status = {
-        "game_id": game.id,
-        "igdb_id": game.igdb_id,
-        "checked": False,
-        "update_available": False,
-        "local_updated_at": game.updated_at,
-        "igdb_updated_at": None,
-        "message": "",
-    }
-    if not game.igdb_id or game.igdb_id == 0:
-        status["message"] = "Game has no IGDB ID (not an IGDB-backed game)."
-        return game, status
-
-    raw = await fetch_igdb_game(game.igdb_id)
-    if not raw:
-        status["message"] = "Could not fetch IGDB game."
-        return game, status
-
-    igdb_updated_at = raw.get("updated_at")
-    if igdb_updated_at is None:
-        status["message"] = "IGDB game missing updated_at."
-        return game, status
-
-    status["checked"] = True
-    status["igdb_updated_at"] = igdb_updated_at
-    status["update_available"] = game.updated_at != igdb_updated_at
-    status["message"] = (
-        "Metadata update available from IGDB."
-        if status["update_available"]
-        else "Already up to date."
-    )
-    return game, status
 
 
 def refresh_all_games_metadata(session: Session) -> Dict[str, int]:
