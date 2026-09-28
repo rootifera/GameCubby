@@ -419,6 +419,30 @@ def test_live_api_exercises_file_system_and_metadata_jobs(tmp_path, monkeypatch)
     assert client.post("/auth/login", json={"username": "integration-admin", "password": "new-password"}).status_code == 200
 
 
+def test_advanced_search_include_manual_filter():
+    """include_manual correctly separates IGDB games (igdb_id > 0) from manual ones (igdb_id = 0)."""
+    _setup()
+    with SessionLocal() as db:
+        db.add_all([
+            Game(name="IGDB Game", igdb_id=123),
+            Game(name="Manual Game", igdb_id=0),
+        ])
+        db.commit()
+
+    client = TestClient(app)
+
+    all_results = client.get("/search/advanced?name=Game").json()["results"]
+    assert len(all_results) == 2
+
+    only_manual = client.get("/search/advanced?include_manual=only").json()["results"]
+    assert len(only_manual) == 1
+    assert only_manual[0]["name"] == "Manual Game"
+
+    no_manual = client.get("/search/advanced?include_manual=false").json()["results"]
+    assert len(no_manual) == 1
+    assert no_manual[0]["name"] == "IGDB Game"
+
+
 def test_live_api_exercises_purchase_link_shortcut_management():
     _setup()
     client = TestClient(app)
