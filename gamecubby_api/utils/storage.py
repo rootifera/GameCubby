@@ -10,6 +10,7 @@ from fastapi import UploadFile, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from shutil import rmtree
 import aiofiles
+import httpx
 
 from ..models.game import Game
 from ..models.storage import GameFile, FileCategory
@@ -745,6 +746,189 @@ def sync_all_files(db: Session, *, delete_orphans: bool = False) -> dict:
                     logging.info("Deleted %s orphaned file records from DB.", len(orphan_files))
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Cover image caching
+# ---------------------------------------------------------------------------
+
+_COVER_FILENAME = "cover.jpg"
+_MAX_COVER_BYTES = 10 * 1024 * 1024  # 10 MB
+_log = logging.getLogger(__name__)
+
+
+def _cover_local_path(game: Game) -> Path:
+    group = "igdb" if game.igdb_id else "local"
+    return UPLOADS_DIR / group / get_game_ref(game) / "metadata" / _COVER_FILENAME
+
+
+def _cover_s3_key(db: Session, game: Game) -> str:
+    prefix = _s3_prefix(db)
+    group = "igdb" if game.igdb_id else "local"
+    key = f"uploads/{group}/{get_game_ref(game)}/metadata/{_COVER_FILENAME}"
+    return f"{prefix}/{key}" if prefix else key
+
+
+def _write_cover_local(game: Game, data: bytes) -> None:
+    path = _cover_local_path(game)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_bytes(data)
+    tmp.replace(path)
+
+
+def _write_cover_s3(db: Session, game: Game, data: bytes) -> None:
+    _s3_client(db).put_object(
+        Bucket=_s3_bucket(db),
+        Key=_cover_s3_key(db, game),
+        Body=data,
+        ContentType="image/jpeg",
+    )
+
+
+async def _download_cover_bytes(url: str) -> bytes | None:
+    """Fetch image bytes from a URL; return None on any error."""
+    try:
+        async with httpx.AsyncClient(
+            timeout=20,
+            follow_redirects=True,
+            headers={"User-Agent": "GameCubby/1.0 cover-cache"},
+        ) as client:
+            resp = await client.get(url)
+        resp.raise_for_status()
+        data = resp.content
+        content_type = resp.headers.get("content-type", "image/jpeg").split(";")[0].strip()
+        if not content_type.startswith("image/") or not data or len(data) > _MAX_COVER_BYTES:
+            _log.warning("Rejected cover download from %s: content_type=%s size=%d", url, content_type, len(data))
+            return None
+        return data
+    except httpx.HTTPStatusError as exc:
+        _log.warning("Cover download failed: HTTP %s for %s", exc.response.status_code, url)
+        return None
+    except Exception:
+        _log.warning("Cover download failed unexpectedly for %s", url, exc_info=True)
+        return None
+
+
+async def download_and_store_cover(db: Session, game: Game) -> bool:
+    """
+    Download the IGDB cover URL for *game* and write it to the configured storage.
+    Returns True on success, False on any failure (download or storage error).
+    Does NOT touch the database — callers set game.cover_cached.
+    """
+    if not game.cover_url:
+        return False
+    data = await _download_cover_bytes(game.cover_url)
+    if data is None:
+        return False
+    try:
+        if configured_storage_backend(db) == "s3":
+            _write_cover_s3(db, game, data)
+        else:
+            _write_cover_local(game, data)
+        return True
+    except Exception:
+        _log.warning("Storage write failed for game %s cover; trying local fallback", game.id, exc_info=True)
+        try:
+            _write_cover_local(game, data)
+            return True
+        except Exception:
+            _log.error("Local fallback also failed for game %s cover", game.id, exc_info=True)
+            return False
+
+
+def store_custom_cover(db: Session, game: Game, data: bytes) -> None:
+    """
+    Persist user-uploaded cover bytes for a custom (non-IGDB) game.
+    Raises HTTPException on storage error.
+    Does NOT touch the database — callers set game.cover_cached.
+    """
+    try:
+        if configured_storage_backend(db) == "s3":
+            _write_cover_s3(db, game, data)
+        else:
+            _write_cover_local(game, data)
+    except Exception as exc:
+        raise HTTPException(500, f"Cover upload failed: {exc}") from exc
+
+
+def remove_cached_cover(db: Session, game: Game) -> None:
+    """
+    Delete the cached cover from storage (both S3 and local if present).
+    Does NOT touch the database — callers set game.cover_cached = False.
+    """
+    if configured_storage_backend(db) == "s3":
+        try:
+            _s3_client(db).delete_object(Bucket=_s3_bucket(db), Key=_cover_s3_key(db, game))
+        except Exception:
+            _log.warning("S3 delete failed for game %s cover; will still clear local", game.id, exc_info=True)
+    path = _cover_local_path(game)
+    if path.is_file():
+        path.unlink()
+
+
+async def serve_game_cover(db: Session, game: Game) -> Response:
+    """
+    Return an HTTP response for the game's cover image.
+    - cover_cached=True → serve from configured storage (presigned redirect or FileResponse)
+    - cover_cached=False + cover_url → 307 redirect to IGDB
+    - neither                        → 404
+    """
+    if game.cover_cached:
+        backend = configured_storage_backend(db)
+        if backend == "s3":
+            try:
+                key = _cover_s3_key(db, game)
+                presign_base = _s3_presign_base_url(db)
+                presign_client = _s3_client(db, endpoint_url_override=presign_base or None)
+                url = presign_client.generate_presigned_url(
+                    "get_object",
+                    Params={"Bucket": _s3_bucket(db), "Key": key},
+                    ExpiresIn=_s3_presign_expires(db),
+                )
+                return RedirectResponse(url=url, status_code=307)
+            except Exception:
+                _log.warning("S3 presign failed for game %s cover; falling back to local", game.id, exc_info=True)
+        path = _cover_local_path(game)
+        if path.is_file():
+            return FileResponse(str(path), media_type="image/jpeg")
+        _log.warning("cover_cached=True for game %s but no file found; falling back", game.id)
+
+    if game.cover_url:
+        return RedirectResponse(url=game.cover_url, status_code=307)
+
+    raise HTTPException(404, "No cover image available for this game")
+
+
+async def sync_all_game_covers(db: Session) -> dict:
+    """
+    Download IGDB covers for all games that don't already have a cached copy.
+    Returns statistics: total, cached (newly downloaded), already_cached, failed, failed_game_ids.
+    """
+    games = (
+        db.query(Game)
+        .filter(Game.cover_url.isnot(None), Game.cover_url != "")
+        .all()
+    )
+    result: dict = {
+        "total": len(games),
+        "cached": 0,
+        "already_cached": 0,
+        "failed": 0,
+        "failed_game_ids": [],
+    }
+    for game in games:
+        if game.cover_cached:
+            result["already_cached"] += 1
+            continue
+        if await download_and_store_cover(db, game):
+            game.cover_cached = True
+            db.commit()
+            result["cached"] += 1
+        else:
+            result["failed"] += 1
+            result["failed_game_ids"].append(game.id)
+    return result
 
 
 def get_downloadable_file(db: Session, file_id: int) -> Response:

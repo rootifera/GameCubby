@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime, timezone
@@ -7,6 +7,7 @@ import json
 import logging
 import os
 from ..db import get_db
+from ..models.game import Game as GameModel
 from ..schemas.game import (
     Game as GameSchema,
     GameCreate,
@@ -27,6 +28,13 @@ from ..utils.game import (
     force_refresh_metadata, list_games_preview, create_game_and_resolve_wishlist,
     add_igdb_game_and_resolve_wishlist,
 )
+from ..utils.storage import (
+    serve_game_cover,
+    download_and_store_cover,
+    store_custom_cover,
+    remove_cached_cover,
+    sync_all_game_covers,
+)
 from ..utils.wishlist import (
     WishlistAlreadyResolvedError,
     WishlistNotFoundError,
@@ -45,10 +53,49 @@ router = APIRouter(prefix="/games", tags=["Games"])
 logger = logging.getLogger(__name__)
 
 METADATA_REFRESH_STATUS_FILE = Path(os.getenv("METADATA_REFRESH_STATUS_FILE", "storage/metadata_refresh_status.json"))
+COVER_SYNC_STATUS_FILE = Path(os.getenv("COVER_SYNC_STATUS_FILE", "storage/cover_sync_status.json"))
 
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _read_cover_sync_status() -> dict:
+    try:
+        if COVER_SYNC_STATUS_FILE.is_file():
+            return json.loads(COVER_SYNC_STATUS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        logger.exception("Failed to read cover sync status from %s", COVER_SYNC_STATUS_FILE)
+    return {"status": "idle", "started_at": None, "finished_at": None, "result": None, "error": None}
+
+
+def _write_cover_sync_status(payload: dict) -> None:
+    COVER_SYNC_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = COVER_SYNC_STATUS_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    tmp.replace(COVER_SYNC_STATUS_FILE)
+
+
+def _start_cover_sync(background_tasks: BackgroundTasks) -> dict:
+    started = {"status": "running", "started_at": _utc_now(), "finished_at": None, "result": None, "error": None}
+    _write_cover_sync_status(started)
+
+    async def _run():
+        with try_job_lock("cover-image-sync") as acquired:
+            if not acquired:
+                logger.info("Cover sync skipped; another worker owns the job")
+                return
+            try:
+                with with_db() as db:
+                    result = await sync_all_game_covers(db)
+                _write_cover_sync_status({**started, "status": "completed", "finished_at": _utc_now(), "result": result})
+                logger.info("Cover sync completed: %s", result)
+            except Exception:
+                logger.exception("Cover sync failed")
+                _write_cover_sync_status({**started, "status": "failed", "finished_at": _utc_now(), "error": "Cover sync raised an unexpected error"})
+
+    background_tasks.add_task(_run)
+    return started
 
 
 def _read_metadata_refresh_status() -> dict:
@@ -257,3 +304,92 @@ async def refresh_all_metadata_status_endpoint():
 @router.post("/force_refresh_metadata", dependencies=[Depends(get_current_admin)])
 async def force_refresh_metadata_endpoint(background_tasks: BackgroundTasks):
     return _start_metadata_refresh(background_tasks, "force_refresh")
+
+
+# ---------------------------------------------------------------------------
+# Cover image endpoints
+# ---------------------------------------------------------------------------
+
+@router.get("/{game_id}/cover")
+async def get_cover(game_id: int, db: Session = Depends(get_db)):
+    """Serve the cover image. Returns cached local/S3 file or redirects to IGDB."""
+    game = db.get(GameModel, game_id)
+    if not game:
+        raise HTTPException(404, "Game not found")
+    return await serve_game_cover(db, game)
+
+
+@router.get("/{game_id}/cover/status")
+def get_cover_status(game_id: int, db: Session = Depends(get_db)):
+    """Return whether a cached cover exists for this game."""
+    game = db.get(GameModel, game_id)
+    if not game:
+        raise HTTPException(404, "Game not found")
+    return {"game_id": game_id, "cover_cached": game.cover_cached, "igdb_cover_url": game.cover_url}
+
+
+@router.post("/{game_id}/cover/cache", dependencies=[Depends(get_current_admin)])
+async def cache_cover(game_id: int, db: Session = Depends(get_db)):
+    """Download and cache the IGDB cover for a specific game."""
+    game = db.get(GameModel, game_id)
+    if not game:
+        raise HTTPException(404, "Game not found")
+    if not game.cover_url:
+        raise HTTPException(400, "Game has no IGDB cover URL to download")
+    if game.cover_cached:
+        return {"game_id": game_id, "cached": False, "message": "Cover is already cached."}
+    success = await download_and_store_cover(db, game)
+    if success:
+        game.cover_cached = True
+        db.commit()
+    return {
+        "game_id": game_id,
+        "cached": success,
+        "message": "Cover downloaded and cached." if success else "Failed to download cover.",
+    }
+
+
+@router.post("/{game_id}/cover", dependencies=[Depends(get_current_admin)])
+async def upload_cover(game_id: int, db: Session = Depends(get_db), file: UploadFile = File(...)):
+    """Upload a cover image for any game (required for custom games, overrides IGDB cached cover)."""
+    game = db.get(GameModel, game_id)
+    if not game:
+        raise HTTPException(404, "Game not found")
+    content_type = (file.content_type or "").split(";")[0].strip()
+    if not content_type.startswith("image/"):
+        raise HTTPException(400, "Uploaded file must be an image")
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(413, "Cover image must be under 10 MB")
+    if game.cover_cached:
+        remove_cached_cover(db, game)
+    store_custom_cover(db, game, data)
+    game.cover_cached = True
+    db.commit()
+    return {"game_id": game_id, "message": "Cover uploaded and cached."}
+
+
+@router.delete("/{game_id}/cover", dependencies=[Depends(get_current_admin)])
+def delete_cover(game_id: int, db: Session = Depends(get_db)):
+    """Remove the cached cover for a game."""
+    game = db.get(GameModel, game_id)
+    if not game:
+        raise HTTPException(404, "Game not found")
+    if not game.cover_cached:
+        raise HTTPException(404, "No cached cover to delete")
+    remove_cached_cover(db, game)
+    game.cover_cached = False
+    db.commit()
+    return {"game_id": game_id, "message": "Cached cover removed."}
+
+
+@router.post("/sync-cover-images", dependencies=[Depends(get_current_admin)])
+async def sync_cover_images(background_tasks: BackgroundTasks):
+    """Bulk download IGDB covers for all games that don't have a cached copy. Runs in background."""
+    return _start_cover_sync(background_tasks)
+
+
+@router.get("/sync-cover-images/status", dependencies=[Depends(get_current_admin)])
+def sync_cover_images_status():
+    """Return the status and result of the last cover sync run."""
+    return _read_cover_sync_status()

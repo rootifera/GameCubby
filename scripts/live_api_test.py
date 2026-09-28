@@ -485,6 +485,129 @@ if r.status_code == 201:
 r = post(base_pls, headers=auth(), json={"label": "   "})
 check("POST /purchase-link-shortcuts/ with blank label returns 422", r.status_code == 422)
 
+# ── Cover Images ─────────────────────────────────────────────────────────────
+section("Cover Images")
+
+# igdb_id is not in GamePreview; use cover_url presence as proxy for IGDB-backed
+_all_games = get("/games/").json() if get("/games/").status_code == 200 else []
+_igdb_game = next((g for g in _all_games if g.get("cover_url")), None)
+_custom_game = next((g for g in _all_games if not g.get("cover_url")), None)
+
+# cover_cached field is present in game list and detail responses
+check(
+    "GET /games/ response includes cover_cached field",
+    _all_games and "cover_cached" in _all_games[0],
+)
+if _igdb_game:
+    r = get(f"/games/{_igdb_game['id']}")
+    check(
+        "GET /games/{id} response includes cover_cached field",
+        r.status_code == 200 and "cover_cached" in r.json(),
+    )
+
+# cover/status — public, no auth required
+if _igdb_game:
+    r = get(f"/games/{_igdb_game['id']}/cover/status")
+    check("GET /games/{id}/cover/status returns 200 (no auth)", r.status_code == 200)
+    d = r.json()
+    check(
+        "cover/status has cover_cached and igdb_cover_url fields",
+        "cover_cached" in d and "igdb_cover_url" in d,
+    )
+
+# cover/status 404 for unknown game
+r = get("/games/999999/cover/status")
+check("GET /games/999999/cover/status returns 404", r.status_code == 404)
+
+# GET /cover — public; falls back to IGDB redirect when not cached
+if _igdb_game:
+    r = get(f"/games/{_igdb_game['id']}/cover", allow_redirects=False)
+    check(
+        "GET /games/{id}/cover redirects when not cached (uncached game)",
+        r.status_code == 307 and r.headers.get("location", "").startswith("https://"),
+    )
+
+# auth guards on admin endpoints
+if _igdb_game:
+    r = post(f"/games/{_igdb_game['id']}/cover/cache")
+    check("POST /games/{id}/cover/cache without auth returns 401/403", r.status_code in {401, 403})
+    r = delete(f"/games/{_igdb_game['id']}/cover")
+    check("DELETE /games/{id}/cover without auth returns 401/403", r.status_code in {401, 403})
+
+r = post("/games/sync-cover-images")
+check("POST /games/sync-cover-images without auth returns 401/403", r.status_code in {401, 403})
+r = get("/games/sync-cover-images/status")
+check("GET /games/sync-cover-images/status without auth returns 401/403", r.status_code in {401, 403})
+
+# cache IGDB cover for a specific game
+_cover_test_id = None
+if _igdb_game:
+    _cover_test_id = _igdb_game["id"]
+    r = post(f"/games/{_cover_test_id}/cover/cache", headers=auth())
+    check("POST /games/{id}/cover/cache succeeds (admin)", r.status_code == 200 and r.json().get("cached") is True)
+
+    # now the cover should be served directly (200, image/jpeg)
+    r = get(f"/games/{_cover_test_id}/cover", allow_redirects=True)
+    check(
+        "GET /games/{id}/cover serves image after caching",
+        r.status_code == 200 and r.headers.get("content-type", "").startswith("image/"),
+    )
+
+    # status reflects cached=True
+    r = get(f"/games/{_cover_test_id}/cover/status")
+    check(
+        "cover/status shows cover_cached=True after caching",
+        r.status_code == 200 and r.json().get("cover_cached") is True,
+    )
+
+    # caching again returns already-cached message (idempotent)
+    r = post(f"/games/{_cover_test_id}/cover/cache", headers=auth())
+    check(
+        "POST /games/{id}/cover/cache is idempotent (already cached)",
+        r.status_code == 200 and r.json().get("cached") is False,
+    )
+
+    # delete the cached cover
+    r = delete(f"/games/{_cover_test_id}/cover", headers=auth())
+    check("DELETE /games/{id}/cover removes cached cover", r.status_code == 200)
+
+    # status reflects cached=False again
+    r = get(f"/games/{_cover_test_id}/cover/status")
+    check(
+        "cover/status shows cover_cached=False after deletion",
+        r.status_code == 200 and r.json().get("cover_cached") is False,
+    )
+
+# custom cover upload for any game
+if _custom_game or _igdb_game:
+    _upload_target = (_custom_game or _igdb_game)["id"]
+    import io
+    # minimal valid 1×1 PNG
+    _png = (
+        b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01'
+        b'\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00'
+        b'\x00\x01\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82'
+    )
+    r = post(
+        f"/games/{_upload_target}/cover",
+        headers=auth(),
+        files={"file": ("cover.png", io.BytesIO(_png), "image/png")},
+    )
+    check("POST /games/{id}/cover uploads custom cover", r.status_code == 200)
+
+    r = get(f"/games/{_upload_target}/cover", allow_redirects=True)
+    check(
+        "GET /games/{id}/cover serves uploaded custom cover",
+        r.status_code == 200 and r.headers.get("content-type", "").startswith("image/"),
+    )
+
+    # clean up uploaded cover
+    delete(f"/games/{_upload_target}/cover", headers=auth())
+
+# sync-cover-images/status is accessible to admin
+r = get("/games/sync-cover-images/status", headers=auth())
+check("GET /games/sync-cover-images/status returns status (admin)", r.status_code == 200 and "status" in r.json())
+
 # ── Maintenance ───────────────────────────────────────────────────────────────
 section("Maintenance")
 r = get("/admin/maintenance/status")

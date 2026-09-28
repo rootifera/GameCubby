@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Boolean, Column, Integer, String, ForeignKey
 from sqlalchemy.orm import relationship
 
 from ..models.game_platform import game_platforms
@@ -23,6 +23,7 @@ class Game(Base):
     summary = Column(String, nullable=True)
     release_date = Column(Integer, nullable=True)
     cover_url = Column(String, nullable=True)
+    cover_cached = Column(Boolean, nullable=False, default=False, server_default="false")
     condition = Column(Integer, nullable=True)
     location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
     order = Column(Integer, nullable=True)

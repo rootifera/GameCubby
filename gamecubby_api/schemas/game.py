@@ -41,6 +41,7 @@ class Game(BaseModel):
     summary: Optional[str]
     release_date: Optional[int]
     cover_url: Optional[str]
+    cover_cached: bool = False
     condition: Optional[int]
     location_path: List[LocationPathItem] = Field(default_factory=list)
     order: Optional[int]
@@ -121,6 +122,7 @@ class GamePreview(BaseModel):
     id: int
     name: str
     cover_url: Optional[str] = None
+    cover_cached: bool = False
     release_date: Optional[int] = None
     summary: Optional[str] = None
     rating: Optional[int] = None
