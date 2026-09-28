@@ -56,6 +56,29 @@ def _s3_presign_expires(db: Session) -> int:
         return 900
 
 
+def _s3_presign_base_url(db: Session) -> str:
+    """
+    Optional external URL to rewrite presigned URLs to.
+    Useful when s3_endpoint_url points to an internal address but presigned
+    download links must be reachable by external clients.
+    Set s3_presigned_base_url to the public-facing endpoint (e.g. https://s3.example.com).
+    """
+    return _config_value(db, "s3_presigned_base_url").rstrip("/")
+
+
+def _rewrite_presigned_url(internal_url: str, presign_base: str) -> str:
+    from urllib.parse import urlparse, urlunparse
+    if not presign_base:
+        return internal_url
+    parsed_internal = urlparse(internal_url)
+    parsed_base = urlparse(presign_base)
+    rewritten = parsed_internal._replace(
+        scheme=parsed_base.scheme,
+        netloc=parsed_base.netloc,
+    )
+    return urlunparse(rewritten)
+
+
 def _s3_client(db: Session):
     try:
         import boto3
@@ -78,7 +101,12 @@ def _s3_client(db: Session):
     if secret_key:
         kwargs["aws_secret_access_key"] = secret_key
 
-    kwargs["config"] = Config(signature_version="s3v4")
+    kwargs["config"] = Config(
+        signature_version="s3v4",
+        s3={"addressing_style": "path", "payload_signing_enabled": False},
+        request_checksum_calculation="when_required",
+        response_checksum_validation="when_required",
+    )
     return boto3.client("s3", **kwargs)
 
 
@@ -747,6 +775,7 @@ def get_downloadable_file(db: Session, file_id: int) -> Response:
                 },
                 ExpiresIn=_s3_presign_expires(db),
             )
+            url = _rewrite_presigned_url(url, _s3_presign_base_url(db))
         except Exception as e:
             raise HTTPException(500, f"Could not create S3 download URL: {str(e)}") from e
 
