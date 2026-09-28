@@ -866,8 +866,10 @@ def list_games_preview(db: Session) -> list[GamePreview]:
     for game in games:
         preview = GamePreview(
             id=game.id,
+            igdb_id=game.igdb_id or None,
             name=game.name,
             cover_url=game.cover_url,
+            cover_cached=game.cover_cached,
             release_date=game.release_date,
             summary=game.summary,
             rating=game.rating,

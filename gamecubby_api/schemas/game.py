@@ -120,6 +120,7 @@ class PlatformPreview(BaseModel):
 
 class GamePreview(BaseModel):
     id: int
+    igdb_id: Optional[int] = None
     name: str
     cover_url: Optional[str] = None
     cover_cached: bool = False
