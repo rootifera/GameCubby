@@ -30,6 +30,7 @@ from gamecubby_api.models.company import Company
 from gamecubby_api.models.collection import Collection
 from gamecubby_api.models.igdb_tag import IGDBTag
 from gamecubby_api.utils import storage
+from gamecubby_api.utils import rate_limit as rate_limit_utils
 from gamecubby_api.utils.job_lock import try_job_lock
 from gamecubby_api.utils.setup import perform_first_run_setup
 from gamecubby_api.routers import company as company_router
@@ -482,3 +483,184 @@ def test_live_api_exercises_purchase_link_shortcut_management():
     assert wishlist.status_code == 200
     assert client.delete(f"{base}{ebay.json()['id']}", headers=headers).status_code == 204
     assert client.get(f"/wishlist/{wishlist.json()['id']}").json()["links"][0]["label"] == "eBay UK"
+
+
+def test_rate_limiter_blocks_on_repeated_failures_and_clears_on_success():
+    """Rate limiter issues 429 after MAX_FAILS bad logins from the same IP, and clears on success."""
+    _setup()
+    client = TestClient(app)
+
+    # Isolate this test from any leftover in-process state from earlier tests.
+    rate_limit_utils._rate_state.clear()
+
+    attacker = {"x-real-ip": "10.0.0.99"}
+    bystander = {"x-real-ip": "10.0.0.100"}
+
+    # Three wrong passwords — each should return 401.
+    for _ in range(3):
+        resp = client.post("/auth/login", json={"username": "integration-admin", "password": "wrong"}, headers=attacker)
+        assert resp.status_code == 401
+
+    # Fourth attempt from the same IP is now blocked.
+    blocked = client.post("/auth/login", json={"username": "integration-admin", "password": "wrong"}, headers=attacker)
+    assert blocked.status_code == 429
+    assert "Retry-After" in blocked.headers
+
+    # A different IP is completely unaffected.
+    resp = client.post("/auth/login", json={"username": "integration-admin", "password": "integration-password"}, headers=bystander)
+    assert resp.status_code == 200
+
+    # Correct credentials from a clean IP also clear state for that IP so a
+    # subsequent correct login still works (success resets the fail counter).
+    clean = {"x-real-ip": "10.0.0.101"}
+    client.post("/auth/login", json={"username": "integration-admin", "password": "wrong"}, headers=clean)
+    client.post("/auth/login", json={"username": "integration-admin", "password": "integration-password"}, headers=clean)
+    resp = client.post("/auth/login", json={"username": "integration-admin", "password": "integration-password"}, headers=clean)
+    assert resp.status_code == 200
+
+
+def test_advanced_search_year_range_and_platform_filters_return_correct_rows():
+    _setup()
+    with SessionLocal() as db:
+        db.add_all([Platform(id=6, name="PC"), Platform(id=8, name="SNES")])
+        db.commit()
+
+    client = TestClient(app)
+    headers = _admin_headers(client)
+
+    client.post("/games/", headers=headers, json={"name": "PC Year2000 Game", "release_date": 2000, "platform_ids": [6]})
+    client.post("/games/", headers=headers, json={"name": "SNES Year1994 Game", "release_date": 1994, "platform_ids": [8]})
+    client.post("/games/", headers=headers, json={"name": "PC Year1996 Game", "release_date": 1996, "platform_ids": [6]})
+
+    # Exact year.
+    results = client.get("/search/advanced?year=2000").json()["results"]
+    assert [r["name"] for r in results] == ["PC Year2000 Game"]
+
+    # Year range — includes 1994 and 1996 but not 2000.
+    results = client.get("/search/advanced?year_min=1990&year_max=1999").json()["results"]
+    assert {r["name"] for r in results} == {"SNES Year1994 Game", "PC Year1996 Game"}
+
+    # year_min only.
+    results = client.get("/search/advanced?year_min=1997").json()["results"]
+    assert [r["name"] for r in results] == ["PC Year2000 Game"]
+
+    # Platform filter — PC only.
+    results = client.get("/search/advanced?platform_ids=6").json()["results"]
+    assert {r["name"] for r in results} == {"PC Year2000 Game", "PC Year1996 Game"}
+
+    # No valid filters → 400.
+    assert client.get("/search/advanced").status_code == 400
+
+    # Invalid year → 422.
+    assert client.get("/search/advanced?year=notanumber").status_code == 422
+
+
+def test_advanced_search_location_descendants():
+    _setup()
+    client = TestClient(app)
+    headers = _admin_headers(client)
+
+    root = client.post("/locations/?name=Root&type=root", headers=headers).json()
+    child = client.post(f"/locations/?name=Child&parent_id={root['id']}&type=shelf", headers=headers).json()
+    grandchild = client.post(f"/locations/?name=Grandchild&parent_id={child['id']}&type=shelf", headers=headers).json()
+
+    client.post("/games/", headers=headers, json={"name": "Root Game", "location_id": root["id"]})
+    client.post("/games/", headers=headers, json={"name": "Child Game", "location_id": child["id"]})
+    client.post("/games/", headers=headers, json={"name": "Grandchild Game", "location_id": grandchild["id"]})
+    client.post("/games/", headers=headers, json={"name": "Unlocated Game"})
+
+    # Exact location — only the game directly in root.
+    results = client.get(f"/search/advanced?location_id={root['id']}").json()["results"]
+    assert [r["name"] for r in results] == ["Root Game"]
+
+    # With descendants — all three located games, not the unlocated one.
+    results = client.get(f"/search/advanced?location_id={root['id']}&include_location_descendants=true").json()["results"]
+    assert {r["name"] for r in results} == {"Root Game", "Child Game", "Grandchild Game"}
+
+    # Child subtree — child and grandchild only.
+    results = client.get(f"/search/advanced?location_id={child['id']}&include_location_descendants=true").json()["results"]
+    assert {r["name"] for r in results} == {"Child Game", "Grandchild Game"}
+
+
+def test_advanced_search_tag_match_modes():
+    _setup()
+    client = TestClient(app)
+    headers = _admin_headers(client)
+
+    tag_a = client.post("/tags/?name=alpha", headers=headers).json()
+    tag_b = client.post("/tags/?name=beta", headers=headers).json()
+
+    client.post("/games/", headers=headers, json={"name": "Both Tags", "tag_ids": [tag_a["id"], tag_b["id"]]})
+    client.post("/games/", headers=headers, json={"name": "Alpha Only", "tag_ids": [tag_a["id"]]})
+    client.post("/games/", headers=headers, json={"name": "No Tags"})
+
+    a, b = tag_a["id"], tag_b["id"]
+
+    # any — returns every game that has at least one of the tags.
+    results = client.get(f"/search/advanced?tag_ids={a}&tag_ids={b}&match_mode=any").json()["results"]
+    assert {r["name"] for r in results} == {"Both Tags", "Alpha Only"}
+
+    # all — must have every listed tag.
+    results = client.get(f"/search/advanced?tag_ids={a}&tag_ids={b}&match_mode=all").json()["results"]
+    assert [r["name"] for r in results] == ["Both Tags"]
+
+    # exact — must have exactly those tags and no others.
+    results = client.get(f"/search/advanced?tag_ids={a}&tag_ids={b}&match_mode=exact").json()["results"]
+    assert [r["name"] for r in results] == ["Both Tags"]
+
+    results = client.get(f"/search/advanced?tag_ids={a}&match_mode=exact").json()["results"]
+    assert [r["name"] for r in results] == ["Alpha Only"]
+
+    # Invalid match_mode → 422.
+    assert client.get(f"/search/advanced?tag_ids={a}&match_mode=bogus").status_code == 422
+
+
+def test_game_crud_returns_404_for_missing_resources():
+    _setup()
+    client = TestClient(app)
+    headers = _admin_headers(client)
+
+    assert client.get("/games/99999").status_code == 404
+    assert client.put("/games/99999", headers=headers, json={"condition": 1}).status_code == 404
+    assert client.delete("/games/99999", headers=headers).status_code == 404
+    assert client.get("/games/99999/location_path").status_code == 404
+
+    # Creating a game with a non-existent wishlist_id should fail.
+    assert client.post("/games/", headers=headers, json={"name": "Test", "wishlist_id": 99999}).status_code == 404
+
+
+def test_basic_search_filters_year_platform_and_tags():
+    _setup()
+    with SessionLocal() as db:
+        db.add(Platform(id=6, name="PC"))
+        db.commit()
+
+    client = TestClient(app)
+    headers = _admin_headers(client)
+
+    tag = client.post("/tags/?name=retro", headers=headers).json()
+
+    client.post("/games/", headers=headers, json={"name": "PC Retro 1990", "release_date": 1990, "platform_ids": [6], "tag_ids": [tag["id"]]})
+    client.post("/games/", headers=headers, json={"name": "PC Modern 2010", "release_date": 2010, "platform_ids": [6]})
+    client.post("/games/", headers=headers, json={"name": "Other 1990", "release_date": 1990})
+
+    # Year filter.
+    results = client.get("/search/basic?year=1990").json()["results"]
+    assert {r["name"] for r in results} == {"PC Retro 1990", "Other 1990"}
+
+    # Platform filter.
+    results = client.get("/search/basic?platform_id=6").json()["results"]
+    assert {r["name"] for r in results} == {"PC Retro 1990", "PC Modern 2010"}
+
+    # Tag filter (any — default).
+    results = client.get(f"/search/basic?tag_ids={tag['id']}").json()["results"]
+    assert [r["name"] for r in results] == ["PC Retro 1990"]
+
+    # Invalid year → 422.
+    assert client.get("/search/basic?year=abc").status_code == 422
+
+    # Invalid platform_id → 422.
+    assert client.get("/search/basic?platform_id=abc").status_code == 422
+
+    # Invalid match_mode → 422.
+    assert client.get(f"/search/basic?tag_ids={tag['id']}&match_mode=wrong").status_code == 422
