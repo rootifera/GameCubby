@@ -20,6 +20,7 @@ from sqlalchemy import func
 from ..models.playerperspective import PlayerPerspective
 from ..models.company import Company
 from ..models.game_company import GameCompany
+from ..models.wishlist import WishlistItem
 from ..models.storage import GameFile
 from ..utils.storage import _s3_bucket, _s3_client, _s3_uri
 from ..utils.external import get_igdb_token, _get_igdb_credentials, _post_with_retry
@@ -387,6 +388,11 @@ def delete_game(session: Session, game_id: int) -> bool:
     game = session.query(Game).filter_by(id=game_id).first()
     if not game:
         return False
+    # Detach any wishlist resolutions that reference this game before deleting,
+    # since the FK has no ON DELETE action defined.
+    session.query(WishlistItem).filter_by(library_game_id=game_id).update(
+        {"library_game_id": None}, synchronize_session=False
+    )
     session.delete(game)
     session.commit()
     return True
