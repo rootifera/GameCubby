@@ -134,6 +134,16 @@ class GameCreateResponse(Game):
     matching_wishlist_ids: List[int] = Field(default_factory=list)
 
 
+class MetadataUpdateStatus(BaseModel):
+    game_id: int
+    igdb_id: Optional[int]
+    checked: bool
+    update_available: bool
+    local_updated_at: Optional[int]
+    igdb_updated_at: Optional[int]
+    message: str
+
+
 class GameIdName(BaseModel):
     id: int
     name: str

@@ -182,6 +182,13 @@ def test_live_api_exercises_manual_game_storage_and_wishlist_lifecycle(tmp_path,
     client = TestClient(app)
     headers = _admin_headers(client)
 
+    # This static path must be registered before /games/{game_id}; otherwise
+    # FastAPI attempts to parse "sync-cover-images" as an integer game ID.
+    assert client.get("/games/sync-cover-images/status").status_code in {401, 403}
+    cover_sync_status = client.get("/games/sync-cover-images/status", headers=headers)
+    assert cover_sync_status.status_code == 200
+    assert cover_sync_status.json()["status"] in {"idle", "running", "completed", "failed"}
+
     tag = client.post("/tags/?name=integration-tag", headers=headers)
     assert tag.status_code == 200
     location = client.post("/locations/?name=Integration+Shelf&type=shelf", headers=headers)
@@ -193,6 +200,12 @@ def test_live_api_exercises_manual_game_storage_and_wishlist_lifecycle(tmp_path,
     })
     assert game.status_code == 200
     game_id = game.json()["id"]
+
+    assert client.get(f"/games/{game_id}/metadata-update-status").status_code in {401, 403}
+    metadata_status = client.get(f"/games/{game_id}/metadata-update-status", headers=headers)
+    assert metadata_status.status_code == 200
+    assert metadata_status.json()["checked"] is False
+    assert metadata_status.json()["update_available"] is False
 
     uploaded = client.post(
         f"/games/{game_id}/files/upload",

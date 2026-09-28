@@ -12,7 +12,7 @@ from ..schemas.game import (
     GameCreate,
     GameUpdate,
     AssignLocationRequest,
-    AddGameFromIGDBRequest, GameCreateResponse, GamePreview,
+    AddGameFromIGDBRequest, GameCreateResponse, GamePreview, MetadataUpdateStatus,
 )
 from ..utils.game import (
     get_game,
@@ -21,6 +21,7 @@ from ..utils.game import (
     delete_game,
     add_game_from_igdb,
     convert_igdb_game_to_custom,
+    get_game_metadata_update_status,
     refresh_game_metadata,
     refresh_all_games_metadata,
     force_refresh_metadata, list_games_preview, create_game_and_resolve_wishlist,
@@ -39,11 +40,14 @@ from ..utils.location import get_location_path
 from ..utils.auth import get_current_admin
 from ..utils.db_tools import with_db
 from ..utils.job_lock import try_job_lock
+from ..utils.storage import get_game_cover_response, sync_all_game_covers
+from ..models.game import Game
 
 router = APIRouter(prefix="/games", tags=["Games"])
 logger = logging.getLogger(__name__)
 
 METADATA_REFRESH_STATUS_FILE = Path(os.getenv("METADATA_REFRESH_STATUS_FILE", "storage/metadata_refresh_status.json"))
+COVER_SYNC_STATUS_FILE = Path(os.getenv("COVER_SYNC_STATUS_FILE", "storage/cover_sync_status.json"))
 
 
 def _utc_now() -> str:
@@ -72,6 +76,42 @@ def _write_metadata_refresh_status(payload: dict) -> None:
     tmp_path = METADATA_REFRESH_STATUS_FILE.with_suffix(".tmp")
     tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
     tmp_path.replace(METADATA_REFRESH_STATUS_FILE)
+
+
+def _read_cover_sync_status() -> dict:
+    try:
+        if COVER_SYNC_STATUS_FILE.is_file():
+            return json.loads(COVER_SYNC_STATUS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        logger.exception("Failed to read cover sync status")
+    return {"status": "idle", "started_at": None, "finished_at": None, "result": None, "error": None}
+
+
+def _write_cover_sync_status(payload: dict) -> None:
+    COVER_SYNC_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temporary = COVER_SYNC_STATUS_FILE.with_suffix(".tmp")
+    temporary.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+    temporary.replace(COVER_SYNC_STATUS_FILE)
+
+
+def _start_cover_sync(background_tasks: BackgroundTasks) -> dict:
+    started = {"status": "running", "started_at": _utc_now(), "finished_at": None, "result": None, "error": None}
+    _write_cover_sync_status(started)
+
+    async def run_sync():
+        with try_job_lock("cover-image-sync") as acquired:
+            if not acquired:
+                return
+            try:
+                with with_db() as db:
+                    result = await sync_all_game_covers(db)
+                _write_cover_sync_status({**started, "status": "completed", "finished_at": _utc_now(), "result": result})
+            except Exception as exc:
+                logger.exception("Cover image sync failed")
+                _write_cover_sync_status({**started, "status": "failed", "finished_at": _utc_now(), "error": str(exc)})
+
+    background_tasks.add_task(run_sync)
+    return started
 
 
 def _start_metadata_refresh(background_tasks: BackgroundTasks, kind: str) -> dict:
@@ -133,12 +173,30 @@ def get_all_games(db: Session = Depends(get_db)):
     return list_games_preview(db)
 
 
+@router.post("/sync-cover-images", dependencies=[Depends(get_current_admin)])
+async def sync_cover_images_endpoint(background_tasks: BackgroundTasks):
+    return _start_cover_sync(background_tasks)
+
+
+@router.get("/sync-cover-images/status", dependencies=[Depends(get_current_admin)])
+async def sync_cover_images_status_endpoint():
+    return _read_cover_sync_status()
+
+
 @router.get("/{game_id}", response_model=GameSchema)
 def get_game_by_id(game_id: int, db: Session = Depends(get_db)):
     game = get_game(db, game_id)
     if not game:
         raise HTTPException(404, "Game not found")
     return game
+
+
+@router.get("/{game_id}/cover", include_in_schema=True)
+async def get_game_cover(game_id: int, db: Session = Depends(get_db)):
+    game = db.get(Game, game_id)
+    if not game:
+        raise HTTPException(404, "Game not found")
+    return await get_game_cover_response(db, game)
 
 
 @router.put("/{game_id}", response_model=GameSchema, dependencies=[Depends(get_current_admin)])
@@ -229,6 +287,18 @@ async def refresh_metadata_endpoint(game_id: int, db: Session = Depends(get_db))
         "message": msg,
         "game": game
     }
+
+
+@router.get(
+    "/{game_id}/metadata-update-status",
+    response_model=MetadataUpdateStatus,
+    dependencies=[Depends(get_current_admin)],
+)
+async def metadata_update_status_endpoint(game_id: int, db: Session = Depends(get_db)):
+    game, status = await get_game_metadata_update_status(db, game_id)
+    if not game:
+        raise HTTPException(404, status["message"])
+    return status
 
 
 @router.post("/{game_id}/convert_to_custom", response_model=GameSchema, dependencies=[Depends(get_current_admin)])

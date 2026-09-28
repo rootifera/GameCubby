@@ -3,12 +3,15 @@ import os
 from pathlib import Path
 from typing import List, Tuple, Optional
 import logging
+import time
+import tempfile
 import sqlalchemy.exc
 from sqlalchemy.orm import Session
 from fastapi import UploadFile, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse, Response
 from shutil import rmtree
 import aiofiles
+import httpx
 
 from ..models.game import Game
 from ..models.storage import GameFile, FileCategory
@@ -17,6 +20,11 @@ from ..utils.app_config import get_app_config_value
 
 STORAGE_ROOT = Path("./storage")
 UPLOADS_DIR = STORAGE_ROOT / "uploads"
+_COVER_FILENAME = "cover.jpg"
+_MAX_COVER_BYTES = 10 * 1024 * 1024
+_COVER_CACHE_RETRY_AFTER_SECONDS = 300
+_cover_cache_failures: dict[str, float] = {}
+_cover_storage_failures: dict[str, float] = {}
 
 
 def _config_value(db: Session, key: str, default: str = "") -> str:
@@ -184,6 +192,164 @@ def _list_s3_objects(db: Session, prefix: str):
 
 def get_game_ref(game: Game) -> str:
     return str(game.igdb_id) if game.igdb_id else "".join(c for c in game.name.lower() if c.isalnum())
+
+
+def _cover_local_path(game: Game) -> Path:
+    group = "igdb" if game.igdb_id else "local"
+    return UPLOADS_DIR / group / get_game_ref(game) / "metadata" / _COVER_FILENAME
+
+
+def _cover_s3_key(db: Session, game: Game) -> str:
+    prefix = _s3_prefix(db)
+    group = "igdb" if game.igdb_id else "local"
+    key = f"uploads/{group}/{get_game_ref(game)}/metadata/{_COVER_FILENAME}"
+    return f"{prefix}/{key}" if prefix else key
+
+
+def _cover_failure_key(db: Session, game: Game) -> str:
+    return f"{configured_storage_backend(db)}:{get_game_ref(game)}"
+
+
+def _write_local_cover(game: Game, data: bytes) -> None:
+    path = _cover_local_path(game)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_bytes(data)
+    temporary.replace(path)
+
+
+async def cache_game_cover(db: Session, game: Game) -> bool:
+    """Download the canonical cover URL to the configured storage backend."""
+    source_url = (game.cover_url or "").strip()
+    if not source_url.startswith(("https://", "http://")):
+        return False
+    failure_key = _cover_failure_key(db, game)
+    storage_failure_key = f"storage:{configured_storage_backend(db)}"
+    use_local_fallback = (
+        time.monotonic() - _cover_storage_failures.get(storage_failure_key, 0)
+        < _COVER_CACHE_RETRY_AFTER_SECONDS
+    )
+    data = b""
+    try:
+        async with httpx.AsyncClient(
+            timeout=20,
+            follow_redirects=True,
+            headers={"User-Agent": "GameCubby/1.0 cover-cache"},
+        ) as client:
+            response = await client.get(source_url)
+        response.raise_for_status()
+        data = response.content
+        content_type = response.headers.get("content-type", "image/jpeg").split(";", 1)[0]
+        if not content_type.startswith("image/") or not data or len(data) > _MAX_COVER_BYTES:
+            return False
+        # The S3-compatible backend is configured for IGDB-managed storage.
+        # Custom games use their stable local game folder for metadata covers.
+        if configured_storage_backend(db) == "s3" and game.igdb_id and not use_local_fallback:
+            # This S3-compatible service accepts managed uploads through the
+            # transfer API (the same path used for database backups).
+            with tempfile.NamedTemporaryFile() as temporary:
+                temporary.write(data)
+                temporary.flush()
+                _s3_client(db).upload_file(
+                    temporary.name,
+                    _s3_bucket(db),
+                    _cover_s3_key(db, game),
+                    ExtraArgs={"ContentType": content_type},
+                )
+        else:
+            _write_local_cover(game, data)
+        _cover_cache_failures.pop(failure_key, None)
+        return True
+    except httpx.HTTPStatusError as exc:
+        _cover_cache_failures[failure_key] = time.monotonic()
+        logging.getLogger(__name__).warning(
+            "BROKEN COVER IMAGE LINK game_id=%s status=%s",
+            game.id,
+            exc.response.status_code,
+        )
+        return False
+    except Exception as exc:
+        _cover_cache_failures[failure_key] = time.monotonic()
+        now = time.monotonic()
+        last_storage_failure = _cover_storage_failures.get(storage_failure_key, 0)
+        _cover_storage_failures[storage_failure_key] = now
+        if now - last_storage_failure >= _COVER_CACHE_RETRY_AFTER_SECONDS:
+            logging.getLogger(__name__).warning("Cover cache storage unavailable; using local cover cache: %s", exc)
+        if data:
+            try:
+                _write_local_cover(game, data)
+                return True
+            except Exception:
+                pass
+        return False
+
+
+async def get_game_cover_response(db: Session, game: Game) -> Response:
+    """Serve a cached cover, populating the cache on first request when possible."""
+    backend = configured_storage_backend(db)
+    try:
+        if backend == "s3":
+            key = _cover_s3_key(db, game)
+            client = _s3_client(db)
+            client.head_object(Bucket=_s3_bucket(db), Key=key)
+            url = client.generate_presigned_url(
+                "get_object", Params={"Bucket": _s3_bucket(db), "Key": key},
+                ExpiresIn=_s3_presign_expires(db),
+            )
+            return RedirectResponse(url=url, status_code=307)
+        path = _cover_local_path(game)
+        if path.is_file():
+            return FileResponse(path, media_type="image/jpeg")
+    except Exception as exc:
+        error_code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
+        # A missing object is the normal first-request path: cache it below.
+        if error_code not in {"404", "NoSuchKey", "NotFound"}:
+            logging.getLogger(__name__).debug("Cached cover lookup failed for game %s: %s", game.id, exc)
+
+    local_fallback = _cover_local_path(game)
+    if local_fallback.is_file():
+        return FileResponse(local_fallback, media_type="image/jpeg")
+
+    failure_key = _cover_failure_key(db, game)
+    last_failure = _cover_cache_failures.get(failure_key, 0)
+    if time.monotonic() - last_failure >= _COVER_CACHE_RETRY_AFTER_SECONDS and await cache_game_cover(db, game):
+        return await get_game_cover_response(db, game)
+    if game.cover_url:
+        return RedirectResponse(url=game.cover_url, status_code=307)
+    raise HTTPException(404, "Game has no cover image")
+
+
+def has_cached_game_cover(db: Session, game: Game) -> bool:
+    """Return whether the configured backend already contains this game's cover."""
+    if configured_storage_backend(db) == "local":
+        return _cover_local_path(game).is_file()
+    try:
+        _s3_client(db).head_object(Bucket=_s3_bucket(db), Key=_cover_s3_key(db, game))
+        return True
+    except Exception:
+        return _cover_local_path(game).is_file()
+
+
+async def sync_all_game_covers(db: Session) -> dict:
+    """Populate missing cached covers without changing game metadata."""
+    result = {
+        "total": 0,
+        "cached": 0,
+        "already_cached": 0,
+        "failed": 0,
+        "failed_game_ids": [],
+    }
+    games = db.query(Game).filter(Game.cover_url.isnot(None), Game.cover_url != "").all()
+    result["total"] = len(games)
+    for game in games:
+        if has_cached_game_cover(db, game):
+            result["already_cached"] += 1
+        elif await cache_game_cover(db, game):
+            result["cached"] += 1
+        else:
+            result["failed"] += 1
+            result["failed_game_ids"].append(game.id)
+    return result
 
 
 def ensure_game_folders(autocreate_all: bool = False) -> None:
