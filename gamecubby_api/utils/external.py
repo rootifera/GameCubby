@@ -11,6 +11,7 @@ TOKEN_URL = "https://id.twitch.tv/oauth2/token"
 
 _igdb_token: Optional[str] = None
 _igdb_token_expiry: float = 0
+_igdb_token_lock = asyncio.Lock()
 HTTP_TIMEOUT_SECONDS = float(os.getenv("IGDB_HTTP_TIMEOUT_SECONDS", "15"))
 HTTP_RETRIES = int(os.getenv("IGDB_HTTP_RETRIES", "2"))
 
@@ -60,21 +61,26 @@ async def get_igdb_token() -> str:
     if _igdb_token and time.time() < _igdb_token_expiry:
         return _igdb_token
 
-    client_id, client_secret = _get_configured_igdb_credentials()
+    async with _igdb_token_lock:
+        # Re-check inside the lock; another coroutine may have refreshed already.
+        if _igdb_token and time.time() < _igdb_token_expiry:
+            return _igdb_token
 
-    resp = await _post_with_retry(
-        TOKEN_URL,
-        params={
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "grant_type": "client_credentials",
-        },
-    )
-    token_data = resp.json()
-    _igdb_token = token_data["access_token"]
-    expires_in = token_data.get("expires_in", 3600)
-    _igdb_token_expiry = time.time() + expires_in - 300
-    return _igdb_token
+        client_id, client_secret = _get_configured_igdb_credentials()
+
+        resp = await _post_with_retry(
+            TOKEN_URL,
+            params={
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "grant_type": "client_credentials",
+            },
+        )
+        token_data = resp.json()
+        _igdb_token = token_data["access_token"]
+        expires_in = token_data.get("expires_in", 3600)
+        _igdb_token_expiry = time.time() + expires_in - 300
+        return _igdb_token
 
 
 async def fetch_igdb_game(igdb_id: int) -> Optional[dict]:
