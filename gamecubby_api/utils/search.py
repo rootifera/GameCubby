@@ -103,12 +103,11 @@ def search_games_basic(request: Request) -> list[GameSchema]:
         results = query.all()
 
         payload: list[GameSchema] = []
-        with db:  # ensure same session for location lookups
-            for g in results:
-                item = GameSchema.model_validate(g)
-                raw_path = get_location_path(db, g.id)
-                item.location_path = [LocationPathItem(**p) for p in raw_path]
-                payload.append(item)
+        for g in results:
+            item = GameSchema.model_validate(g)
+            raw_path = get_location_path(db, g.id)
+            item.location_path = [LocationPathItem(**p) for p in raw_path]
+            payload.append(item)
         return payload
 
 
