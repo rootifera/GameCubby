@@ -39,4 +39,12 @@ def note_success(ip: str, user: str):
             _rate_state[key] = {"fails": [], "blocked": 0}
 
 def client_ip(request: Request) -> str:
+    # Trust X-Real-IP set by nginx, or the leftmost address in X-Forwarded-For
+    # set by traefik/other proxies, before falling back to the direct connection.
+    real_ip = request.headers.get("x-real-ip", "").strip()
+    if real_ip:
+        return real_ip
+    forwarded_for = request.headers.get("x-forwarded-for", "").strip()
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
     return request.client.host or ""
