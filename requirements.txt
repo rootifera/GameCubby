@@ -1,6 +1,8 @@
 aiofiles==25.1.0
 alembic==1.20.0
-boto3==1.43.103
+# 1.43.x is rejected by the configured S3-compatible endpoint; 1.40.76 is
+# the last version verified to perform backup uploads successfully.
+boto3==1.40.76
 fastapi==0.141.1
 httpx==0.28.1
 openpyxl==3.1.5
