@@ -1,5 +1,5 @@
 from fastapi import Request, HTTPException
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, or_
 
 from ..utils.db_tools import with_db
 from ..utils.location import get_location_path, get_descendant_location_ids_from_snapshot
@@ -103,12 +103,11 @@ def search_games_basic(request: Request) -> list[GameSchema]:
         results = query.all()
 
         payload: list[GameSchema] = []
-        with db:  # ensure same session for location lookups
-            for g in results:
-                item = GameSchema.model_validate(g)
-                raw_path = get_location_path(db, g.id)
-                item.location_path = [LocationPathItem(**p) for p in raw_path]
-                payload.append(item)
+        for g in results:
+            item = GameSchema.model_validate(g)
+            raw_path = get_location_path(db, g.id)
+            item.location_path = [LocationPathItem(**p) for p in raw_path]
+            payload.append(item)
         return payload
 
 
@@ -311,9 +310,9 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
         if include_manual == "true":
             pass
         elif include_manual == "false":
-            query = query.filter(Game.igdb_id != 0)
+            query = query.filter(Game.igdb_id > 0)
         elif include_manual == "only":
-            query = query.filter(Game.igdb_id == 0)
+            query = query.filter(or_(Game.igdb_id.is_(None), Game.igdb_id == 0))
 
         # ORDER / LIMIT
         if qp.get("sort_by_order") == "true" and qp.get("location_id"):
