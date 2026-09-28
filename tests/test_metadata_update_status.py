@@ -87,3 +87,39 @@ def test_cover_sync_reports_failed_game_ids(monkeypatch):
         "failed": 1,
         "failed_game_ids": [failed.id],
     }
+
+
+def test_cover_s3_upload_retries_a_transient_failure(monkeypatch):
+    class Client:
+        attempts = 0
+
+        def upload_file(self, *_args, **_kwargs):
+            self.attempts += 1
+            if self.attempts < 3:
+                raise RuntimeError("temporary S3 rejection")
+
+    client = Client()
+
+    async def no_delay(_seconds):
+        return None
+
+    monkeypatch.setattr(storage, "_s3_client", lambda _db: client)
+    monkeypatch.setattr(storage, "_s3_bucket", lambda _db: "test-bucket")
+    monkeypatch.setattr(storage, "_cover_s3_key", lambda _db, _game: "uploads/igdb/1/metadata/cover.jpg")
+    monkeypatch.setattr(storage.asyncio, "sleep", no_delay)
+
+    asyncio.run(storage._upload_cover_to_s3(None, Game(name="Retry", igdb_id=1), b"image-data", "image/jpeg"))
+
+    assert client.attempts == 3
+
+
+def test_cover_s3_error_details_include_request_identifier():
+    error = RuntimeError("upload failed")
+    error.response = {
+        "Error": {"Code": "AccessDenied", "Message": "Denied by storage"},
+        "ResponseMetadata": {"RequestId": "request-123", "HostId": "host-456"},
+    }
+
+    details = storage._s3_error_details(error)
+
+    assert details == "code=AccessDenied message=Denied by storage request_id=request-123 host_id=host-456"

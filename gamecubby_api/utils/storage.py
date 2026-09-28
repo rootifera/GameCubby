@@ -5,6 +5,7 @@ from typing import List, Tuple, Optional
 import logging
 import time
 import tempfile
+import asyncio
 import sqlalchemy.exc
 from sqlalchemy.orm import Session
 from fastapi import UploadFile, HTTPException
@@ -23,6 +24,8 @@ UPLOADS_DIR = STORAGE_ROOT / "uploads"
 _COVER_FILENAME = "cover.jpg"
 _MAX_COVER_BYTES = 10 * 1024 * 1024
 _COVER_CACHE_RETRY_AFTER_SECONDS = 300
+_COVER_S3_UPLOAD_ATTEMPTS = 3
+_COVER_S3_RETRY_DELAYS_SECONDS = (0.25, 0.75)
 _cover_cache_failures: dict[str, float] = {}
 _cover_storage_failures: dict[str, float] = {}
 
@@ -218,6 +221,51 @@ def _write_local_cover(game: Game, data: bytes) -> None:
     temporary.replace(path)
 
 
+def _s3_error_details(exc: Exception) -> str:
+    """Extract the useful S3 response fields without emitting a traceback."""
+    current = exc
+    seen = set()
+    while current and id(current) not in seen:
+        seen.add(id(current))
+        response = getattr(current, "response", None)
+        if isinstance(response, dict):
+            error = response.get("Error") or {}
+            metadata = response.get("ResponseMetadata") or {}
+            fields = [
+                f"code={error.get('Code', 'unknown')}",
+                f"message={error.get('Message', str(current))}",
+            ]
+            if metadata.get("RequestId"):
+                fields.append(f"request_id={metadata['RequestId']}")
+            if metadata.get("HostId"):
+                fields.append(f"host_id={metadata['HostId']}")
+            return " ".join(fields)
+        current = current.__cause__ or current.__context__
+    return str(exc)
+
+
+async def _upload_cover_to_s3(db: Session, game: Game, data: bytes, content_type: str) -> None:
+    """Upload a cover, allowing for short-lived S3-compatible service failures."""
+    last_error = None
+    with tempfile.NamedTemporaryFile() as temporary:
+        temporary.write(data)
+        temporary.flush()
+        for attempt in range(_COVER_S3_UPLOAD_ATTEMPTS):
+            try:
+                _s3_client(db).upload_file(
+                    temporary.name,
+                    _s3_bucket(db),
+                    _cover_s3_key(db, game),
+                    ExtraArgs={"ContentType": content_type},
+                )
+                return
+            except Exception as exc:
+                last_error = exc
+                if attempt < _COVER_S3_UPLOAD_ATTEMPTS - 1:
+                    await asyncio.sleep(_COVER_S3_RETRY_DELAYS_SECONDS[attempt])
+    raise last_error
+
+
 async def cache_game_cover(db: Session, game: Game) -> bool:
     """Download the canonical cover URL to the configured storage backend."""
     source_url = (game.cover_url or "").strip()
@@ -245,17 +293,7 @@ async def cache_game_cover(db: Session, game: Game) -> bool:
         # The S3-compatible backend is configured for IGDB-managed storage.
         # Custom games use their stable local game folder for metadata covers.
         if configured_storage_backend(db) == "s3" and game.igdb_id and not use_local_fallback:
-            # This S3-compatible service accepts managed uploads through the
-            # transfer API (the same path used for database backups).
-            with tempfile.NamedTemporaryFile() as temporary:
-                temporary.write(data)
-                temporary.flush()
-                _s3_client(db).upload_file(
-                    temporary.name,
-                    _s3_bucket(db),
-                    _cover_s3_key(db, game),
-                    ExtraArgs={"ContentType": content_type},
-                )
+            await _upload_cover_to_s3(db, game, data, content_type)
         else:
             _write_local_cover(game, data)
         _cover_cache_failures.pop(failure_key, None)
@@ -274,7 +312,15 @@ async def cache_game_cover(db: Session, game: Game) -> bool:
         last_storage_failure = _cover_storage_failures.get(storage_failure_key, 0)
         _cover_storage_failures[storage_failure_key] = now
         if now - last_storage_failure >= _COVER_CACHE_RETRY_AFTER_SECONDS:
-            logging.getLogger(__name__).warning("Cover cache storage unavailable; using local cover cache: %s", exc)
+            logging.getLogger(__name__).warning(
+                "Cover cache storage unavailable; using local cover cache "
+                "game_id=%s attempts=%s bucket=%s key=%s %s",
+                game.id,
+                _COVER_S3_UPLOAD_ATTEMPTS,
+                _s3_bucket(db) if configured_storage_backend(db) == "s3" else "local",
+                _cover_s3_key(db, game) if configured_storage_backend(db) == "s3" else _cover_local_path(game),
+                _s3_error_details(exc),
+            )
         if data:
             try:
                 _write_local_cover(game, data)
