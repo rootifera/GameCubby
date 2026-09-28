@@ -8,6 +8,7 @@ from ..utils.search import (
     search_collection_suggestions,
     search_mode_suggestions,
     search_igdb_tag_suggestions,
+    search_genre_suggestions,
 )
 
 router = APIRouter(prefix="/search", tags=["Search"])
@@ -369,4 +370,23 @@ def suggest_collections(request: Request):
 )
 def suggest_companies(request: Request):
     suggestions = search_company_suggestions(request)
+    return {"suggestions": suggestions}
+
+
+@router.get(
+    "/suggest/genres",
+    openapi_extra={
+        "parameters": [
+            {
+                "name": "q",
+                "in": "query",
+                "required": True,
+                "schema": {"type": "string"},
+                "description": "Partial genre name",
+            }
+        ]
+    },
+)
+def suggest_genres(request: Request):
+    suggestions = search_genre_suggestions(request)
     return {"suggestions": suggestions}
