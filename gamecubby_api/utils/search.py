@@ -311,9 +311,9 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
         if include_manual == "true":
             pass
         elif include_manual == "false":
-            query = query.filter(Game.igdb_id != 0)
+            query = query.filter(Game.igdb_id.isnot(None))
         elif include_manual == "only":
-            query = query.filter(Game.igdb_id == 0)
+            query = query.filter(Game.igdb_id.is_(None))
 
         # ORDER / LIMIT
         if qp.get("sort_by_order") == "true" and qp.get("location_id"):
