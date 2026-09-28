@@ -802,8 +802,11 @@ async def _download_cover_bytes(url: str) -> bytes | None:
             _log.warning("Rejected cover download from %s: content_type=%s size=%d", url, content_type, len(data))
             return None
         return data
+    except httpx.HTTPStatusError as exc:
+        _log.warning("Cover download failed: HTTP %s for %s", exc.response.status_code, url)
+        return None
     except Exception:
-        _log.warning("Failed to download cover from %s", url, exc_info=True)
+        _log.warning("Cover download failed unexpectedly for %s", url, exc_info=True)
         return None
 
 
