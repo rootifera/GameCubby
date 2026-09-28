@@ -784,10 +784,13 @@ async def refresh_game_metadata(session: Session, game_id: int) -> Tuple[Optiona
         return game, False, "Already up to date."
 
     game_data = format_igdb_game(raw, session)
+    new_cover_url = game_data["cover_url"]
+    if new_cover_url != game.cover_url:
+        game.cover_cached = False
     game.name = game_data["name"]
     game.summary = game_data["summary"]
     game.release_date = game_data["release_date"]
-    game.cover_url = game_data["cover_url"]
+    game.cover_url = new_cover_url
     game.rating = int(raw["rating"]) if raw.get("rating") is not None else None
     game.updated_at = igdb_updated_at
 
