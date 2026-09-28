@@ -2,6 +2,7 @@ import re
 import os
 from pathlib import Path
 from typing import List, Tuple, Optional
+from urllib.parse import urlparse
 import logging
 import sqlalchemy.exc
 from sqlalchemy.orm import Session
@@ -58,28 +59,26 @@ def _s3_presign_expires(db: Session) -> int:
 
 def _s3_presign_base_url(db: Session) -> str:
     """
-    Optional external URL to rewrite presigned URLs to.
-    Useful when s3_endpoint_url points to an internal address but presigned
+    Optional external URL used as the endpoint when generating presigned download
+    links. Useful when s3_endpoint_url points to an internal address but presigned
     download links must be reachable by external clients.
     Set s3_presigned_base_url to the public-facing endpoint (e.g. https://s3.example.com).
+    The URL is used as the boto3 endpoint_url when signing, so the Host in the
+    canonical request matches the host the client will actually connect to.
     """
-    return _config_value(db, "s3_presigned_base_url").rstrip("/")
+    value = _config_value(db, "s3_presigned_base_url").rstrip("/")
+    if value:
+        parsed = urlparse(value)
+        if not parsed.netloc:
+            logging.warning(
+                "s3_presigned_base_url %r appears malformed (missing scheme?); ignoring",
+                value,
+            )
+            return ""
+    return value
 
 
-def _rewrite_presigned_url(internal_url: str, presign_base: str) -> str:
-    from urllib.parse import urlparse, urlunparse
-    if not presign_base:
-        return internal_url
-    parsed_internal = urlparse(internal_url)
-    parsed_base = urlparse(presign_base)
-    rewritten = parsed_internal._replace(
-        scheme=parsed_base.scheme,
-        netloc=parsed_base.netloc,
-    )
-    return urlunparse(rewritten)
-
-
-def _s3_client(db: Session):
+def _s3_client(db: Session, *, endpoint_url_override: str | None = None):
     try:
         import boto3
         from botocore.config import Config
@@ -87,7 +86,7 @@ def _s3_client(db: Session):
         raise HTTPException(500, "boto3 is required for S3 storage") from exc
 
     kwargs = {}
-    endpoint_url = _config_value(db, "s3_endpoint_url")
+    endpoint_url = endpoint_url_override if endpoint_url_override is not None else _config_value(db, "s3_endpoint_url")
     region = _config_value(db, "s3_region")
     access_key = _config_value(db, "s3_access_key_id")
     secret_key = _config_value(db, "s3_secret_access_key")
@@ -103,9 +102,7 @@ def _s3_client(db: Session):
 
     kwargs["config"] = Config(
         signature_version="s3v4",
-        s3={"addressing_style": "path", "payload_signing_enabled": False},
-        request_checksum_calculation="when_required",
-        response_checksum_validation="when_required",
+        s3={"addressing_style": "path"},
     )
     return boto3.client("s3", **kwargs)
 
@@ -766,7 +763,9 @@ def get_downloadable_file(db: Session, file_id: int) -> Response:
 
         filename = Path(key).name.replace('"', "_").replace("\\", "_")
         try:
-            url = _s3_client(db).generate_presigned_url(
+            presign_base = _s3_presign_base_url(db)
+            presign_client = _s3_client(db, endpoint_url_override=presign_base or None)
+            url = presign_client.generate_presigned_url(
                 "get_object",
                 Params={
                     "Bucket": _s3_bucket(db),
@@ -775,7 +774,6 @@ def get_downloadable_file(db: Session, file_id: int) -> Response:
                 },
                 ExpiresIn=_s3_presign_expires(db),
             )
-            url = _rewrite_presigned_url(url, _s3_presign_base_url(db))
         except Exception as e:
             raise HTTPException(500, f"Could not create S3 download URL: {str(e)}") from e
 
