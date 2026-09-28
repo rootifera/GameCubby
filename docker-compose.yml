@@ -28,7 +28,7 @@ services:
     depends_on:
       gamecubby-db:
         condition: service_healthy
-    #ports: ["8000"]
+    ports: ["8000:8000"]
     volumes:
       - ./storage:/app/storage
       - ./storage:/storage
