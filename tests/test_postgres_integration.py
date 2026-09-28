@@ -42,6 +42,7 @@ from gamecubby_api.routers import playerperspectives as perspectives_router
 from gamecubby_api.routers import games as games_router
 from gamecubby_api.routers import storage as storage_router
 from gamecubby_api.routers import wishlist as wishlist_router
+from gamecubby_api.utils import game as game_utils
 
 
 @pytest.fixture(autouse=True)
@@ -664,3 +665,99 @@ def test_basic_search_filters_year_platform_and_tags():
 
     # Invalid match_mode → 422.
     assert client.get(f"/search/basic?tag_ids={tag['id']}&match_mode=wrong").status_code == 422
+
+
+def test_game_metadata_status_and_refresh(monkeypatch):
+    """
+    Tests for GET /games/{id}/metadata-update-status (public) and
+    POST /games/{id}/refresh_metadata (admin-only).
+    """
+    _setup()
+    client = TestClient(app)
+    headers = _admin_headers(client)
+
+    # Create an IGDB-backed game by inserting directly so we control igdb_id and updated_at.
+    with SessionLocal() as db:
+        game = Game(name="Test IGDB Game", igdb_id=9999, updated_at=1000)
+        db.add(game)
+        db.commit()
+        game_id = game.id
+
+    # Create a manual/custom game (igdb_id=0).
+    custom = client.post("/games/", headers=headers, json={"name": "My Custom Game"}).json()
+    custom_id = custom["id"]
+
+    # ── Status endpoint is public (no auth required) ──────────────────────────
+    r = client.get(f"/games/{game_id}/metadata-update-status")
+    assert r.status_code != 401 and r.status_code != 403
+
+    # ── 404 for missing game ──────────────────────────────────────────────────
+    assert client.get("/games/999999/metadata-update-status").status_code == 404
+
+    # ── Custom game returns not-linked response ───────────────────────────────
+    r = client.get(f"/games/{custom_id}/metadata-update-status")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["checked"] is True
+    assert body["update_available"] is False
+    assert body["igdb_id"] is None
+    assert "not linked" in body["message"].lower()
+
+    # ── Update available: IGDB has a newer timestamp ──────────────────────────
+    async def fake_fetch_newer(_igdb_id):
+        return {"updated_at": 9999, "name": "Test IGDB Game"}
+
+    monkeypatch.setattr(game_utils, "fetch_igdb_game", fake_fetch_newer)
+
+    r = client.get(f"/games/{game_id}/metadata-update-status")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["checked"] is True
+    assert body["update_available"] is True
+    assert body["local_updated_at"] == 1000
+    assert body["igdb_updated_at"] == 9999
+    assert body["game_id"] == game_id
+
+    # ── Already current: timestamps match ────────────────────────────────────
+    async def fake_fetch_same(_igdb_id):
+        return {"updated_at": 1000, "name": "Test IGDB Game"}
+
+    monkeypatch.setattr(game_utils, "fetch_igdb_game", fake_fetch_same)
+
+    r = client.get(f"/games/{game_id}/metadata-update-status")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["checked"] is True
+    assert body["update_available"] is False
+
+    # ── Refresh endpoint requires admin auth ──────────────────────────────────
+    assert client.post(f"/games/{game_id}/refresh_metadata").status_code in (401, 403)
+
+    # ── Refresh 404 for missing game ──────────────────────────────────────────
+    assert client.post("/games/999999/refresh_metadata", headers=headers).status_code == 404
+
+    # ── Successful refresh (IGDB timestamp is newer) ──────────────────────────
+    async def fake_refresh(db, gid):
+        g = db.get(Game, gid)
+        return g, True, "Metadata updated from IGDB."
+
+    monkeypatch.setattr(games_router, "refresh_game_metadata", fake_refresh)
+
+    r = client.post(f"/games/{game_id}/refresh_metadata", headers=headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["game_id"] == game_id
+    assert body["updated"] is True
+    assert "updated" in body["message"].lower()
+
+    # ── No-op refresh (already current) ──────────────────────────────────────
+    async def fake_refresh_noop(db, gid):
+        g = db.get(Game, gid)
+        return g, False, "Metadata is already current."
+
+    monkeypatch.setattr(games_router, "refresh_game_metadata", fake_refresh_noop)
+
+    r = client.post(f"/games/{game_id}/refresh_metadata", headers=headers)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["updated"] is False

@@ -21,6 +21,7 @@ from ..utils.game import (
     delete_game,
     add_game_from_igdb,
     convert_igdb_game_to_custom,
+    check_game_metadata_status,
     refresh_game_metadata,
     refresh_all_games_metadata,
     force_refresh_metadata, list_games_preview, create_game_and_resolve_wishlist,
@@ -219,16 +220,20 @@ def add_game(game: GameCreate, db: Session = Depends(get_db)):
     return created
 
 
+@router.get("/{game_id}/metadata-update-status")
+async def game_metadata_update_status(game_id: int, db: Session = Depends(get_db)):
+    status = await check_game_metadata_status(db, game_id)
+    if status is None:
+        raise HTTPException(404, "Game not found")
+    return status
+
+
 @router.post("/{game_id}/refresh_metadata", dependencies=[Depends(get_current_admin)])
 async def refresh_metadata_endpoint(game_id: int, db: Session = Depends(get_db)):
     game, updated, msg = await refresh_game_metadata(db, game_id)
     if not game:
         raise HTTPException(404, msg)
-    return {
-        "updated": updated,
-        "message": msg,
-        "game": game
-    }
+    return {"game_id": game_id, "updated": updated, "message": msg}
 
 
 @router.post("/{game_id}/convert_to_custom", response_model=GameSchema, dependencies=[Depends(get_current_admin)])

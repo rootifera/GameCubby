@@ -719,6 +719,45 @@ async def purchase_wishlist_item(
     return game
 
 
+async def check_game_metadata_status(session: Session, game_id: int) -> Optional[dict]:
+    """
+    Compare a game's local updated_at against IGDB's current value.
+    Returns None if the game does not exist (caller should raise 404).
+    Returns a dict describing update availability without modifying any data.
+    """
+    game = session.query(Game).filter_by(id=game_id).first()
+    if not game:
+        return None
+
+    base = {"game_id": game_id, "igdb_id": game.igdb_id or None}
+
+    if not game.igdb_id or game.igdb_id == 0:
+        return {**base, "igdb_id": None, "checked": True, "update_available": False,
+                "message": "This game is not linked to IGDB."}
+
+    raw = await fetch_igdb_game(game.igdb_id)
+    if not raw:
+        return {**base, "checked": False, "update_available": False,
+                "local_updated_at": game.updated_at,
+                "message": "Could not reach IGDB to check for updates."}
+
+    igdb_updated_at = raw.get("updated_at")
+    if igdb_updated_at is None:
+        return {**base, "checked": False, "update_available": False,
+                "local_updated_at": game.updated_at,
+                "message": "IGDB did not return an update timestamp."}
+
+    update_available = game.updated_at != igdb_updated_at
+    return {
+        **base,
+        "checked": True,
+        "update_available": update_available,
+        "local_updated_at": game.updated_at,
+        "igdb_updated_at": igdb_updated_at,
+        "message": "Metadata update available from IGDB." if update_available else "Metadata is already current.",
+    }
+
+
 async def refresh_game_metadata(session: Session, game_id: int) -> Tuple[Optional[Game], bool, str]:
     """
     Refresh a game's metadata from IGDB if IGDB's updated_at is newer.
@@ -741,7 +780,6 @@ async def refresh_game_metadata(session: Session, game_id: int) -> Tuple[Optiona
     if igdb_updated_at is None:
         return game, False, "IGDB game missing updated_at."
 
-    print(f"Local updated_at: {game.updated_at}, IGDB updated_at: {igdb_updated_at}")
     if game.updated_at == igdb_updated_at:
         return game, False, "Already up to date."
 
