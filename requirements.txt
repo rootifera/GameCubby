@@ -11,7 +11,7 @@ psycopg[binary]==3.3.6
 python-dotenv==1.2.3
 python-jose==3.5.0
 python-multipart==0.0.32
-SQLAlchemy==2.1.1
+SQLAlchemy==2.1.2
 uvicorn==0.54.0
 httptools==0.8.0
 PyYAML==6.0.3
