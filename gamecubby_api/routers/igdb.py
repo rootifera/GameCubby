@@ -6,7 +6,7 @@ from ..utils.platform import ensure_platforms_exist
 from sqlalchemy.orm import Session
 from ..utils.igdb_tag import upsert_igdb_tags
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from ..utils.auth import get_current_admin
 from ..db import get_db
 from ..models.igdb_tag import IGDBTag  # ← added
@@ -14,8 +14,10 @@ from ..models.igdb_tag import IGDBTag  # ← added
 router = APIRouter(tags=["IGDB"])
 
 
-@router.get("/search", response_model=list[GamePreview])
-async def igdb_game_search(q: str, db: Session = Depends(get_db)):
+@router.get("/search", response_model=list[GamePreview], dependencies=[Depends(get_current_admin)])
+async def igdb_game_search(q: str = Query(..., max_length=200), db: Session = Depends(get_db)):
+    # Admin-only: every call spends IGDB quota (4 req/s shared by the whole app) and can
+    # retry up to 3 times, so an open endpoint is a free way to exhaust it.
     if not q or len(q.strip()) < 2:
         raise HTTPException(status_code=400, detail="Query must be at least 2 characters")
 

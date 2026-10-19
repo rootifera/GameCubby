@@ -2,12 +2,13 @@ from fastapi import Request, HTTPException
 from sqlalchemy.sql import func, or_
 
 from ..utils.db_tools import with_db
-from ..utils.location import get_location_path, get_descendant_location_ids_from_snapshot
+from ..utils.game_query import GAME_SCHEMA_LOAD_OPTIONS, games_to_schemas
+from ..utils.location import get_descendant_location_ids_from_snapshot
 
 from ..models.game import Game
 from ..models.tag import Tag
 from ..models.platform import Platform
-from ..schemas.game import Game as GameSchema, LocationPathItem
+from ..schemas.game import Game as GameSchema
 from ..models.genre import Genre
 from ..models.mode import Mode
 from ..models.playerperspective import PlayerPerspective
@@ -100,15 +101,9 @@ def search_games_basic(request: Request) -> list[GameSchema]:
 
         query = query.limit(_result_limit(limit)).offset(_result_offset(offset))
 
-        results = query.all()
+        results = query.options(*GAME_SCHEMA_LOAD_OPTIONS).all()
 
-        payload: list[GameSchema] = []
-        for g in results:
-            item = GameSchema.model_validate(g)
-            raw_path = get_location_path(db, g.id)
-            item.location_path = [LocationPathItem(**p) for p in raw_path]
-            payload.append(item)
-        return payload
+        return games_to_schemas(db, results)
 
 
 def search_games_advanced(request: Request) -> list[GameSchema]:
@@ -322,15 +317,9 @@ def search_games_advanced(request: Request) -> list[GameSchema]:
 
         query = query.limit(_result_limit(qp.get("limit"))).offset(_result_offset(qp.get("offset")))
 
-        results = query.all()
+        results = query.options(*GAME_SCHEMA_LOAD_OPTIONS).all()
 
-        payload: list[GameSchema] = []
-        for g in results:
-            item = GameSchema.model_validate(g)
-            raw_path = get_location_path(db, g.id)
-            item.location_path = [LocationPathItem(**p) for p in raw_path]
-            payload.append(item)
-        return payload
+        return games_to_schemas(db, results)
 
 
 def search_game_name_suggestions(request: Request) -> list[str]:

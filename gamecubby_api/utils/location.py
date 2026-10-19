@@ -60,6 +60,33 @@ def get_location_path(session: Session, game_id: int) -> list[dict]:
     ]
 
 
+def location_path_resolver(session: Session):
+    """
+    Batch version of `get_location_path` for listing many games.
+
+    Reads the (small) locations table once and returns `path_for(location_id)`, which
+    builds the [root, ..., current] path in memory -- instead of 3+ queries per game.
+    Produces the same output as `get_location_path`.
+    """
+    rows = session.query(Location.id, Location.name, Location.parent_id).all()
+    by_id = {r.id: (r.name, r.parent_id) for r in rows}
+
+    def path_for(location_id: Optional[int]) -> list[dict]:
+        if not location_id:
+            return []
+        chain: list[int] = []
+        seen: set[int] = set()
+        current = location_id
+        while current and current not in seen:  # `seen` guards against a parent cycle
+            seen.add(current)
+            chain.append(current)
+            entry = by_id.get(current)
+            current = entry[1] if entry else None
+        return [{"id": loc_id, "name": by_id[loc_id][0]} for loc_id in reversed(chain) if loc_id in by_id]
+
+    return path_for
+
+
 def get_default_location_id(session: Session) -> Optional[int]:
     default = session.query(Location).filter_by(name="Default Storage").first()
     return default.id if default else None

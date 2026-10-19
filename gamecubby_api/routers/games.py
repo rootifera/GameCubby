@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime, timezone
 from pathlib import Path
+import asyncio
 import json
 import logging
 import os
@@ -20,6 +21,7 @@ from ..utils.game import (
     create_game,
     update_game,
     delete_game,
+    get_delete_impact,
     add_game_from_igdb,
     convert_igdb_game_to_custom,
     check_game_metadata_status,
@@ -28,9 +30,11 @@ from ..utils.game import (
     force_refresh_metadata, list_games_preview, create_game_and_resolve_wishlist,
     add_igdb_game_and_resolve_wishlist,
 )
+from ..utils.file_moves import FileConflictError
 from ..utils.storage import (
     serve_game_cover,
     download_and_store_cover,
+    cached_cover_exists,
     store_custom_cover,
     remove_cached_cover,
     sync_all_game_covers,
@@ -196,13 +200,35 @@ def edit_game(game_id: int, game: GameUpdate, db: Session = Depends(get_db)):
         if not updated:
             raise HTTPException(404, "Game not found")
         return updated
+    except FileConflictError as e:
+        raise HTTPException(409, str(e))
     except ValueError as e:
         raise HTTPException(403, str(e))
 
 
+@router.get("/{game_id}/delete-impact", dependencies=[Depends(get_current_admin)])
+def game_delete_impact(game_id: int, db: Session = Depends(get_db)):
+    """What 'also delete files' would remove, and which other copies share those files."""
+    impact = get_delete_impact(db, game_id)
+    if impact is None:
+        raise HTTPException(404, "Game not found")
+    return impact
+
+
 @router.delete("/{game_id}", response_model=bool, dependencies=[Depends(get_current_admin)])
-def remove_game(game_id: int, db: Session = Depends(get_db)):
-    deleted = delete_game(db, game_id)
+def remove_game(
+    game_id: int,
+    delete_files: bool = Query(
+        False,
+        description="Also delete this game's files and cover. They are shared by every copy of the game, "
+                    "so they are removed for all of them. Off by default.",
+    ),
+    db: Session = Depends(get_db),
+):
+    try:
+        deleted = delete_game(db, game_id, delete_files=delete_files)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
     if not deleted:
         raise HTTPException(404, "Game not found")
     return True
@@ -285,7 +311,10 @@ async def refresh_metadata_endpoint(game_id: int, db: Session = Depends(get_db))
 
 @router.post("/{game_id}/convert_to_custom", response_model=GameSchema, dependencies=[Depends(get_current_admin)])
 def convert_to_custom_endpoint(game_id: int, db: Session = Depends(get_db)):
-    game = convert_igdb_game_to_custom(db, game_id)
+    try:
+        game = convert_igdb_game_to_custom(db, game_id)
+    except FileConflictError as e:
+        raise HTTPException(409, str(e))
     if not game:
         raise HTTPException(404, "Game not found")
     return game
@@ -337,11 +366,13 @@ async def cache_cover(game_id: int, db: Session = Depends(get_db)):
     if not game.cover_url:
         raise HTTPException(400, "Game has no IGDB cover URL to download")
     if game.cover_cached:
-        return {"game_id": game_id, "cached": True, "message": "Cover is already cached."}
+        # Don't trust the flag alone: the file may have been deleted from storage.
+        if await cached_cover_exists(db, game) is not False:
+            return {"game_id": game_id, "cached": True, "message": "Cover is already cached."}
+        game.cover_cached = False
     success = await download_and_store_cover(db, game)
-    if success:
-        game.cover_cached = True
-        db.commit()
+    game.cover_cached = success
+    db.commit()
     return {
         "game_id": game_id,
         "cached": success,
@@ -363,7 +394,7 @@ async def upload_cover(game_id: int, db: Session = Depends(get_db), file: Upload
         raise HTTPException(413, "Cover image must be under 10 MB")
     if game.cover_cached:
         remove_cached_cover(db, game)
-    store_custom_cover(db, game, data)
+    await asyncio.to_thread(store_custom_cover, db, game, data)  # blocking S3/disk write
     game.cover_cached = True
     db.commit()
     return {"game_id": game_id, "message": "Cover uploaded and cached."}

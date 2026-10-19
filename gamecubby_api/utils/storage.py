@@ -1,11 +1,13 @@
 import re
 import os
+import uuid
 import asyncio
 from pathlib import Path
 from typing import List, Tuple, Optional
 from urllib.parse import urlparse
 import logging
 import sqlalchemy.exc
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 from fastapi import UploadFile, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse, Response
@@ -284,13 +286,22 @@ async def upload_and_register_file(
         if existing_file:
             raise HTTPException(409, f"File already exists at this path (ID: {existing_file.id})")
 
+        key_existed: bool | None = None
         try:
             upload_file.file.seek(0)
             extra_args = {}
             if upload_file.content_type:
                 extra_args["ContentType"] = upload_file.content_type
 
-            _s3_client(db).upload_fileobj(
+            # boto3 is blocking and uploads can be gigabytes (ISOs): run it in a worker
+            # thread so the event loop (every other request) keeps serving. The client
+            # is created here because it reads config through this DB session.
+            s3 = _s3_client(db)
+            # Remember whether something was already at this key (an unregistered, orphaned
+            # object): if the upload then fails, that older object must not be deleted.
+            key_existed = await asyncio.to_thread(_s3_object_exists, s3, bucket, key)
+            await asyncio.to_thread(
+                s3.upload_fileobj,
                 upload_file.file,
                 bucket,
                 key,
@@ -322,27 +333,34 @@ async def upload_and_register_file(
             raise
         except Exception as e:
             db.rollback()
-            try:
-                _s3_client(db).delete_object(Bucket=bucket, Key=key)
-            except Exception:
-                pass
+            if key_existed is False:  # unknown (None) or pre-existing: leave it alone
+                try:
+                    _s3_client(db).delete_object(Bucket=bucket, Key=key)
+                except Exception:
+                    pass
             raise HTTPException(500, f"S3 upload failed: {str(e)}") from e
 
     dest_path = UPLOADS_DIR / ("igdb" if game.igdb_id else "local") / game_ref / category.value / safe_filename
 
-    if dest_path.exists():
+    existed_before = dest_path.exists()
+    if existed_before:
         existing_file = db.query(GameFile).filter(GameFile.path == str(dest_path)).first()
         if existing_file:
             raise HTTPException(409, f"File already exists at this path (ID: {existing_file.id})")
 
+    # Stream into a temp file next to the destination and move it into place only once
+    # complete. Writing straight to dest_path meant a failed or interrupted upload both
+    # left a truncated file and, in the cleanup, deleted whatever was there before.
+    tmp_path = dest_path.with_name(f".{dest_path.name}.{uuid.uuid4().hex[:8]}.part")
     try:
         dest_path.parent.mkdir(parents=True, exist_ok=True)
 
         size = 0
-        async with aiofiles.open(dest_path, "wb") as buffer:
+        async with aiofiles.open(tmp_path, "wb") as buffer:
             while chunk := await upload_file.read(8192):
                 size += len(chunk)
                 await buffer.write(chunk)
+        os.replace(tmp_path, dest_path)
 
         file_record = GameFile(
             game=game_ref,
@@ -366,41 +384,63 @@ async def upload_and_register_file(
 
     except Exception as e:
         db.rollback()
+        if not existed_before:  # only remove what this upload created
+            try:
+                dest_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+        raise HTTPException(500, f"File upload failed: {str(e)}") from e
+
+    finally:
         try:
-            dest_path.unlink(missing_ok=True)
+            tmp_path.unlink(missing_ok=True)
         except Exception:
             pass
-        raise HTTPException(500, f"File upload failed: {str(e)}") from e
 
 
 async def delete_game_file(
         db: Session,
         file_id: int,
 ) -> None:
+    """
+    Delete a file record and its stored file.
+
+    The database row goes first and is committed before the stored file is removed. The
+    other order could delete the file and then fail to commit, leaving a record that
+    points at nothing. Failing after the commit leaves at worst an unreferenced file,
+    which is harmless (and is reported by the file sync).
+    """
     file_record = db.get(GameFile, file_id)
     if not file_record:
         raise HTTPException(404, "File not found")
 
     backend = file_record.storage_backend or "local"
+    s3_key = None
+    local_path = None
+    if backend == "s3":
+        s3_key = file_record.object_key
+        path_value = file_record.path or ""
+        if not s3_key and path_value.startswith("s3://"):
+            s3_key = path_value.split("/", 3)[3]
+    else:
+        local_path = Path(file_record.path)
 
     try:
-        if backend == "s3":
-            key = file_record.object_key
-            path_value = file_record.path or ""
-            if not key and path_value.startswith("s3://"):
-                key = path_value.split("/", 3)[3]
-            if key:
-                _s3_client(db).delete_object(Bucket=_s3_bucket(db), Key=key)
-        else:
-            file_path = Path(file_record.path)
-            if file_path.is_file():
-                file_path.unlink()
-
+        s3 = _s3_client(db) if s3_key else None
+        bucket = _s3_bucket(db) if s3_key else None
         db.delete(file_record)
         db.commit()
     except Exception as e:
         db.rollback()
         raise HTTPException(500, f"Deletion failed: {str(e)}") from e
+
+    try:
+        if s3_key:
+            await asyncio.to_thread(s3.delete_object, Bucket=bucket, Key=s3_key)
+        elif local_path is not None and local_path.is_file():
+            local_path.unlink()
+    except Exception:
+        _log.warning("File record %s was deleted but its stored file could not be removed", file_id, exc_info=True)
 
 
 async def update_file_label(
@@ -763,11 +803,22 @@ def _cover_local_path(game: Game) -> Path:
     return UPLOADS_DIR / group / get_game_ref(game) / "metadata" / _COVER_FILENAME
 
 
-def _cover_s3_key(db: Session, game: Game) -> str:
+def _cover_s3_key_for(db: Session, group: str, ref: str) -> str:
+    """S3 key of a cover given its folder group ("igdb"/"local") and game ref."""
     prefix = _s3_prefix(db)
-    group = "igdb" if game.igdb_id else "local"
-    key = f"uploads/{group}/{get_game_ref(game)}/metadata/{_COVER_FILENAME}"
+    key = f"uploads/{group}/{ref}/metadata/{_COVER_FILENAME}"
     return f"{prefix}/{key}" if prefix else key
+
+
+def _s3_game_prefix(db: Session, group: str, ref: str) -> str:
+    """S3 'folder' holding all of one game ref's files (always ends with '/')."""
+    prefix = _s3_prefix(db)
+    base = f"uploads/{group}/{ref}/"
+    return f"{prefix}/{base}" if prefix else base
+
+
+def _cover_s3_key(db: Session, game: Game) -> str:
+    return _cover_s3_key_for(db, "igdb" if game.igdb_id else "local", get_game_ref(game))
 
 
 def _write_cover_local(game: Game, data: bytes) -> None:
@@ -785,6 +836,18 @@ def _write_cover_s3(db: Session, game: Game, data: bytes) -> None:
         Body=data,
         ContentType="image/jpeg",
     )
+
+
+async def _store_cover_bytes(db: Session, game: Game, data: bytes) -> None:
+    """Write cover bytes to the configured storage without blocking the event loop."""
+    if configured_storage_backend(db) == "s3":
+        # Resolve everything that needs the DB session first; only the network call runs in a thread.
+        client = _s3_client(db)
+        bucket = _s3_bucket(db)
+        key = _cover_s3_key(db, game)
+        await asyncio.to_thread(client.put_object, Bucket=bucket, Key=key, Body=data, ContentType="image/jpeg")
+    else:
+        await asyncio.to_thread(_write_cover_local, game, data)
 
 
 async def _download_cover_bytes(url: str) -> bytes | None:
@@ -823,15 +886,12 @@ async def download_and_store_cover(db: Session, game: Game) -> bool:
     if data is None:
         return False
     try:
-        if configured_storage_backend(db) == "s3":
-            _write_cover_s3(db, game, data)
-        else:
-            _write_cover_local(game, data)
+        await _store_cover_bytes(db, game, data)
         return True
     except Exception:
         _log.warning("Storage write failed for game %s cover; trying local fallback", game.id, exc_info=True)
         try:
-            _write_cover_local(game, data)
+            await asyncio.to_thread(_write_cover_local, game, data)
             return True
         except Exception:
             _log.error("Local fallback also failed for game %s cover", game.id, exc_info=True)
@@ -904,27 +964,95 @@ async def serve_game_cover(db: Session, game: Game) -> Response:
 _COVER_SYNC_CONCURRENCY = 10
 
 
+def _s3_object_exists(client, bucket: str, key: str) -> bool | None:
+    """
+    True/False if S3 gives a definite answer, None if it can't tell.
+    Anything other than a clean "not found" (network error, 403, ...) is None so a
+    flaky connection or missing ListBucket permission never looks like "deleted".
+    """
+    try:
+        client.head_object(Bucket=bucket, Key=key)
+        return True
+    except Exception as exc:
+        code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
+        if code in {"404", "NoSuchKey", "NotFound"}:
+            return False
+        _log.warning("Could not verify cover object %s: %s", key, exc)
+        return None
+
+
+async def _covers_exist(db: Session, games: list[Game]) -> dict[int, bool | None]:
+    """
+    Check that each game's cached cover really exists in the configured storage
+    (S3 object or local file). The `cover_cached` flag alone can go stale, e.g. when
+    files are deleted from the bucket or the storage backend is switched.
+    Maps game id -> True / False / None (None = could not be determined).
+    """
+    if configured_storage_backend(db) != "s3":
+        return {g.id: _cover_local_path(g).is_file() for g in games}
+
+    # Resolve everything that needs the DB session up front; only the S3 calls run in threads.
+    client = _s3_client(db)
+    bucket = _s3_bucket(db)
+    keys = {g.id: _cover_s3_key(db, g) for g in games}
+    semaphore = asyncio.Semaphore(_COVER_SYNC_CONCURRENCY)
+
+    async def _check(game_id: int) -> tuple[int, bool | None]:
+        async with semaphore:
+            return game_id, await asyncio.to_thread(_s3_object_exists, client, bucket, keys[game_id])
+
+    return dict(await asyncio.gather(*[_check(gid) for gid in keys]))
+
+
+async def cached_cover_exists(db: Session, game: Game) -> bool | None:
+    """True/False if the game's cached cover is/isn't in storage, None if unknown."""
+    return (await _covers_exist(db, [game]))[game.id]
+
+
 async def sync_all_game_covers(db: Session) -> dict:
     """
-    Download IGDB covers for all games that don't already have a cached copy.
+    Make the cover cache match reality.
+
+    - Games without a cached cover get their IGDB cover downloaded.
+    - Games flagged as cached are verified against the configured storage; if the
+      file is gone the flag is cleared and the cover is downloaded again. When that
+      isn't possible (no IGDB URL, e.g. a lost custom upload, or the download fails)
+      the flag stays cleared so the game falls back to IGDB / shows as needing a cover.
+    - If existence can't be determined (S3 error), the game is left untouched.
+
     Downloads run concurrently (up to _COVER_SYNC_CONCURRENCY at a time).
-    Returns statistics: total, cached (newly downloaded), already_cached, failed, failed_game_ids.
+    Returns statistics: total, cached (downloaded this run), already_cached (verified
+    present), missing_in_storage (flag was set but file was gone), unverified,
+    unverified_game_ids, failed, failed_game_ids.
     """
     games = (
         db.query(Game)
-        .filter(Game.cover_url.isnot(None), Game.cover_url != "")
+        .filter(or_(and_(Game.cover_url.isnot(None), Game.cover_url != ""), Game.cover_cached.is_(True)))
         .all()
     )
     result: dict = {
         "total": len(games),
         "cached": 0,
         "already_cached": 0,
+        "missing_in_storage": 0,
+        "unverified": 0,
+        "unverified_game_ids": [],
         "failed": 0,
         "failed_game_ids": [],
     }
 
-    to_process = [g for g in games if not g.cover_cached]
-    result["already_cached"] = len(games) - len(to_process)
+    flagged = [g for g in games if g.cover_cached]
+    exists = await _covers_exist(db, flagged) if flagged else {}
+    stale = [g for g in flagged if exists.get(g.id) is False]
+    unverified = [g for g in flagged if exists.get(g.id) is None]
+    stale_ids = {g.id for g in stale}
+
+    result["already_cached"] = len(flagged) - len(stale) - len(unverified)
+    result["missing_in_storage"] = len(stale)
+    result["unverified"] = len(unverified)
+    result["unverified_game_ids"] = [g.id for g in unverified]
+
+    to_process = [g for g in games if not g.cover_cached] + stale
 
     semaphore = asyncio.Semaphore(_COVER_SYNC_CONCURRENCY)
 
@@ -939,6 +1067,8 @@ async def sync_all_game_covers(db: Session) -> dict:
             game.cover_cached = True
             result["cached"] += 1
         else:
+            if game.id in stale_ids:
+                game.cover_cached = False  # the flag was wrong; don't keep claiming a cover
             result["failed"] += 1
             result["failed_game_ids"].append(game.id)
 

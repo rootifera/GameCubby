@@ -72,7 +72,7 @@ router = APIRouter(prefix="/search", tags=["Search"])
         ]
     },
 )
-async def basic_search(request: Request):
+def basic_search(request: Request):
     results = search_games_basic(request)
     return {"results": results}
 

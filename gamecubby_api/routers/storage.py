@@ -240,7 +240,7 @@ def list_file_categories() -> List[str]:
 
 
 @downloads_router.get("/{file_id}")
-async def download_file(
+def download_file(
     file_id: int,
     db: Session = Depends(get_db),
     admin = Depends(get_current_admin_optional),

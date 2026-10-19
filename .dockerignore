@@ -1,0 +1,33 @@
+# Keep secrets, local data and dev tooling out of the image (the build context is the
+# repo root, and the Dockerfile does `COPY . .`).
+
+# Secrets / local config -- compose passes the real environment via `env_file`
+.env
+.env.*
+!.env.default
+
+# Local data: uploads, backups, status files (mounted at runtime, never baked in)
+storage
+
+# Python / tooling
+.venv
+venv
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# VCS / IDE / CI
+.git
+.github
+.idea
+.vscode
+
+# Not needed at runtime
+tests
+docs
+*.md
+openapi.json
+docker-compose*.yml
+update.sh
