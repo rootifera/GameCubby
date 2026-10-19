@@ -37,7 +37,7 @@ def login(request: Request, creds: LoginRequest):
             "role": "admin",
             "exp": datetime.now(timezone.utc) + timedelta(hours=24),
         }
-        token = create_access_token(payload)
+        token = create_access_token(payload, db)
         return {"access_token": token, "token_type": "bearer"}
     finally:
         db_gen.close()

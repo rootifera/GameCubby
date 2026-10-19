@@ -21,7 +21,7 @@ def get_current_admin(
         db: Session = Depends(get_db)
 ) -> AdminUser:
     token = credentials.credentials
-    payload = decode_access_token(token)
+    payload = decode_access_token(token, db)
 
     user_id = payload.get("sub")
     role = payload.get("role")
@@ -52,7 +52,7 @@ def get_current_admin_optional(
 
     token = credentials.credentials
     try:
-        payload = decode_access_token(token)
+        payload = decode_access_token(token, db)
     except Exception:
         return None
 

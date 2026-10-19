@@ -127,17 +127,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             except asyncio.TimeoutError:
                 pass
 
-            try:
+            def run_scheduled_backup() -> bool:
+                """Blocking work (advisory lock, pg_dump, S3, pruning): runs in a worker thread."""
                 with try_job_lock("scheduled-backup") as acquired:
                     if not acquired:
-                        print("[autobackup] skipped; another API worker owns the schedule")
-                        continue
+                        return False
                     with with_db() as db:
                         saved = save_backup_to_disk(db)
-                        prune_old_backups(db, retention_days)
-                print(f"[autobackup] backup saved: {saved.uri}")
+                        print(f"[autobackup] backup saved: {saved.uri}")
+                        try:
+                            prune_old_backups(db, retention_days)
+                        except Exception:
+                            logging.getLogger("gamecubby.backup").warning("backup pruning failed", exc_info=True)
+                return True
+
+            try:
+                # pg_dump can take minutes: never run it on the event loop, or every
+                # request on this worker would hang for the duration of the backup.
+                ran = await asyncio.to_thread(run_scheduled_backup)
+                if not ran:
+                    print("[autobackup] skipped; another API worker owns the schedule")
             except Exception as e:
-                print(f"[autobackup] backup failed: {e}")
+                # save_backup_to_disk already logged the traceback and recorded the
+                # failure in last_backup.json; this covers lock/DB errors around it.
+                logging.getLogger("gamecubby.backup").error("[autobackup] backup failed: %s", e)
 
     backup_task = asyncio.create_task(backup_loop())
 

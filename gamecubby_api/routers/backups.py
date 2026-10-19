@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from typing import List
 
@@ -14,15 +15,18 @@ from ..utils.backup import (
     save_backup_to_disk,
     prune_old_backups,
     list_backups,
+    read_backup_status,
     sync_backup_storage,
 )
 from pydantic import BaseModel
+
+logger = logging.getLogger("gamecubby.backup")
 
 router = APIRouter(prefix="/backup", tags=["Backup"])
 
 
 @router.get("/", response_class=StreamingResponse, dependencies=[Depends(get_current_admin)])
-async def backup_database():
+def backup_database():
     """
     One-off backup download (unchanged).
     Streams a temporary pg_dump file back to the client.
@@ -31,8 +35,17 @@ async def backup_database():
 
 
 @router.get("/list", dependencies=[Depends(get_current_admin)])
-async def backup_list(db: Session = Depends(get_db)):
-    return {"ok": True, "files": list_backups(db)}
+def backup_list(db: Session = Depends(get_db)):
+    warnings: List[str] = []
+    files = list_backups(db, warnings)
+    return {
+        "ok": True,
+        "files": files,
+        # Problems that would otherwise look like "no backups" (e.g. S3 unreachable).
+        "warnings": warnings,
+        # Outcome of the most recent backup attempt, incl. consecutive_failures.
+        "last_backup": read_backup_status(),
+    }
 
 
 class BackupStorageSyncRequest(BaseModel):
@@ -41,7 +54,7 @@ class BackupStorageSyncRequest(BaseModel):
 
 
 @router.post("/sync-storage", dependencies=[Depends(get_current_admin)])
-async def backup_sync_storage(payload: BackupStorageSyncRequest, db: Session = Depends(get_db)):
+def backup_sync_storage(payload: BackupStorageSyncRequest, db: Session = Depends(get_db)):
     try:
         return {"ok": True, **sync_backup_storage(db, payload.source, payload.target)}
     except ValueError as e:
@@ -63,7 +76,7 @@ def _env_int(name: str, default: int) -> int:
 
 
 @router.post("/save", dependencies=[Depends(get_current_admin)])
-async def backup_save_to_disk(db: Session = Depends(get_db)):
+def backup_save_to_disk(db: Session = Depends(get_db)):
     """
     Admin-only endpoint intended for periodic schedulers (e.g. cron/healthcheck).
     Behavior:
@@ -85,7 +98,13 @@ async def backup_save_to_disk(db: Session = Depends(get_db)):
 
     saved = save_backup_to_disk(db)
 
-    deleted: List[str] = prune_old_backups(db, retention_days)
+    # The backup is already safely stored; a pruning problem must not turn that
+    # into a failed request.
+    deleted: List[str] = []
+    try:
+        deleted = prune_old_backups(db, retention_days)
+    except Exception:
+        logger.warning("backup pruning failed", exc_info=True)
 
     return {
         "ok": True,
