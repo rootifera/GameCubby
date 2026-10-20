@@ -55,6 +55,8 @@ APPLICATION_OPERATIONS = {
     # Public read-only status check, and the admin-only preview shown before "also delete files".
     "GET /games/{game_id}/metadata-update-status", "GET /games/{game_id}/delete-impact",
     "GET /search/suggest/genres",
+    # Location manager: renumber a shelf so its games count 1..N (preview, then apply).
+    "POST /locations/{location_id}/fill-order-gaps",
 }
 
 

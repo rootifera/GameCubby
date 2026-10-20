@@ -2,7 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, Response, Body
 from sqlalchemy.orm import Session
 from ..db import get_db
 from ..schemas.game import GameIdName
-from ..schemas.location import Location as LocationSchema, LocationMigrationResult, LocationMigrationRequest
+from ..schemas.location import (
+    Location as LocationSchema, LocationMigrationResult, LocationMigrationRequest,
+    FillOrderGapsRequest, FillOrderGapsResponse,
+)
 from ..utils.game import list_games_by_location
 from ..utils.location import (
     create_location,
@@ -11,6 +14,7 @@ from ..utils.location import (
     list_child_locations,
     list_all_locations,
     delete_location, rename_location, migrate_location_games,
+    plan_order_renumbering, apply_order_renumbering, StaleOrderPlanError,
 )
 from ..utils.auth import get_current_admin
 
@@ -121,3 +125,28 @@ def list_games_for_location(location_id: int, db: Session = Depends(get_db)):
 
     games = list_games_by_location(db, location_id)
     return [GameIdName(id=g.id, name=g.name) for g in games]
+
+
+@router.post(
+    "/{location_id}/fill-order-gaps",
+    response_model=FillOrderGapsResponse,
+    dependencies=[Depends(get_current_admin)],
+)
+def fill_order_gaps(location_id: int, payload: FillOrderGapsRequest, db: Session = Depends(get_db)):
+    """
+    Renumber the games of a location (optionally with all its sub-locations) so their order numbers
+    run 1..N with no gaps or duplicates. Each location is numbered on its own.
+
+    Two steps, on purpose: call with `apply=false` to PREVIEW (nothing is written), then with
+    `apply=true` and the preview's `fingerprint` to write exactly what was previewed.
+    """
+    if not get_location(db, location_id):
+        raise HTTPException(status_code=404, detail="Location not found")
+    if not payload.apply:
+        return plan_order_renumbering(db, location_id, payload.include_children)
+    if not payload.fingerprint:
+        raise HTTPException(status_code=400, detail="Preview first: applying needs the fingerprint from the preview.")
+    try:
+        return apply_order_renumbering(db, location_id, payload.include_children, payload.fingerprint)
+    except StaleOrderPlanError as e:
+        raise HTTPException(status_code=409, detail=str(e))

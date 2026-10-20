@@ -12,6 +12,14 @@
   counts failed logins per visitor, using `X-Forwarded-For`. `TRUSTED_PROXY_HOPS` (default `1`) says how many
   proxies append to that header. Without `PROXY=true` the limit stays shared by everyone, as before.
 
+### New
+- **Fill order gaps** (Admin → Location Manager). Select a location and renumber its games so they count
+  1, 2, 3… left to right with no gaps or duplicates, for example after games were taken off the shelf. Optionally
+  include all sub-locations; each one is numbered on its own. Manual only, with a preview first (including a
+  CSV of every old → new number); applying writes exactly what was previewed, all-or-nothing, and is refused if
+  the games changed in between. Games that share a number are split in the order they were added and listed so
+  you can check them on the shelf; games without an order are left alone. A dual jewel case counts as one game.
+
 ### Changes
 - **Login rate limit per visitor.** The API only ever saw the web server's address, so three bad guesses from
   anyone (a scanner, an attacker) locked the real admin out for a minute, repeatably.
