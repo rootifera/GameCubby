@@ -24,6 +24,7 @@ they never modify existing Wishlist links.
 ## Documentation
 
 For installation, setup, and detailed usage, please see the **[GameCubby Wiki](https://github.com/rootifera/GameCubby/wiki)**.  
+Release and upgrade notes are in [CHANGELOG.md](CHANGELOG.md).  
 
 ## Screenshots
 

@@ -1017,9 +1017,10 @@ async def check_metadata_status_for(game_id: int, igdb_id: Optional[int], local_
         _status_inflight.pop(key, None)
 
 
-async def refresh_game_metadata(session: Session, game_id: int) -> Tuple[Optional[Game], bool, str]:
+async def refresh_game_metadata(session: Session, game_id: int, *, force: bool = False) -> Tuple[Optional[Game], bool, str]:
     """
     Refresh a game's metadata from IGDB if IGDB's updated_at is newer.
+    With `force=True` the metadata is re-applied even when the timestamps match.
     Returns: (game, was_updated (bool), message)
 
     NOTE: This does NOT modify platforms. We preserve the user's selected platforms.
@@ -1039,7 +1040,7 @@ async def refresh_game_metadata(session: Session, game_id: int) -> Tuple[Optiona
     if igdb_updated_at is None:
         return game, False, "IGDB game missing updated_at."
 
-    if game.updated_at == igdb_updated_at:
+    if game.updated_at == igdb_updated_at and not force:
         return game, False, "Already up to date."
 
     game_data = format_igdb_game(raw, session)
@@ -1069,21 +1070,27 @@ async def refresh_game_metadata(session: Session, game_id: int) -> Tuple[Optiona
     return game, True, "Game metadata updated from IGDB."
 
 
-def refresh_all_games_metadata(session: Session) -> Dict[str, int]:
+def refresh_all_games_metadata(session: Session, *, force: bool = False) -> Dict[str, int]:
     """
     Refresh metadata for all IGDB-backed games.
     Returns summary: {updated: int, skipped: int, errors: int}
+
+    Each game is handled on its own: a failure rolls back just that game (a DB error would
+    otherwise leave the shared session unusable and fail every game after it), and the
+    transaction is ended after every game so the job doesn't hold a pooled connection idle
+    through the IGDB calls and pauses (a full run takes about 10 minutes).
     """
     updated, skipped, errors = 0, 0, 0
-    games = session.query(Game).filter(Game.igdb_id.isnot(None), Game.igdb_id > 0).all()
+    game_ids = [row.id for row in session.query(Game.id).filter(Game.igdb_id.isnot(None), Game.igdb_id > 0).all()]
+    session.rollback()  # end the read transaction used to collect the ids
 
     loop = asyncio.new_event_loop()
     try:
         asyncio.set_event_loop(loop)
-        for game in games:
+        for game_id in game_ids:
             try:
                 async def do_refresh():
-                    result = await refresh_game_metadata(session, game.id)
+                    result = await refresh_game_metadata(session, game_id, force=force)
                     await asyncio.sleep(1.0)
                     return result
 
@@ -1096,8 +1103,10 @@ def refresh_all_games_metadata(session: Session) -> Dict[str, int]:
                 else:
                     errors += 1
             except Exception as e:
-                print(f"Error refreshing game {game.id}: {e}")
+                print(f"Error refreshing game {game_id}: {e}")
                 errors += 1
+            finally:
+                session.rollback()  # discard anything uncommitted after a failure; end the transaction either way
     finally:
         asyncio.set_event_loop(None)
         loop.close()
@@ -1108,14 +1117,14 @@ def refresh_all_games_metadata(session: Session) -> Dict[str, int]:
 
 def force_refresh_metadata(session: Session) -> Dict[str, int]:
     """
-    Sets updated_at = 0 for all IGDB-backed games, then calls batch refresh.
+    Re-apply IGDB metadata to every IGDB-backed game, even where nothing changed.
+
+    This used to set every game's updated_at to 0 and commit that BEFORE contacting IGDB, to trick
+    the "already up to date" check. If IGDB then failed (outage, rate limit, revoked key), every
+    game was left flagged "update available" with its real timestamp lost. A `force` flag skips
+    the check instead, so a failed run changes nothing.
     """
-    session.query(Game).filter(
-        Game.igdb_id.isnot(None), Game.igdb_id > 0
-    ).update({Game.updated_at: 0}, synchronize_session=False)
-    session.commit()
-    print("Force refresh: all updated_at set to 0.")
-    return refresh_all_games_metadata(session)
+    return refresh_all_games_metadata(session, force=True)
 
 
 def list_games_preview(db: Session) -> list[GamePreview]:
