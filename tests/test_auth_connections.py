@@ -30,17 +30,24 @@ def db(monkeypatch):
     return session
 
 
+def _token(db, **claims):
+    """A valid login token: logins bind tokens to the current password hash (`pwv` claim)."""
+    user = db.query(AdminUser).first()
+    payload = {"sub": "1", "role": "admin", "pwv": auth.password_fingerprint(user.password_hash), **claims}
+    return jwt.create_access_token(payload, db)
+
+
 def _creds(token):
     return HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
 
 
 def test_get_current_admin_uses_the_request_session(db):
-    token = jwt.create_access_token({"sub": "1", "role": "admin"}, db)
+    token = _token(db)
     assert auth.get_current_admin(_creds(token), db).username == "admin"
 
 
 def test_get_current_admin_optional_uses_the_request_session(db):
-    token = jwt.create_access_token({"sub": "1", "role": "admin"}, db)
+    token = _token(db)
     assert auth.get_current_admin_optional(_creds(token), db).username == "admin"
     assert auth.get_current_admin_optional(_creds("garbage"), db) is None
 
@@ -49,7 +56,7 @@ def test_bad_token_and_non_admin_are_still_rejected(db):
     with pytest.raises(HTTPException) as bad:
         auth.get_current_admin(_creds("not.a.jwt"), db)
     assert bad.value.status_code == 401
-    user_token = jwt.create_access_token({"sub": "1", "role": "user"}, db)
+    user_token = _token(db, role="user")
     with pytest.raises(HTTPException) as nope:
         auth.get_current_admin(_creds(user_token), db)
     assert nope.value.status_code == 403

@@ -60,6 +60,9 @@ from .routers.wishlist import router as wishlist_router
 from .routers.purchase_link_shortcuts import router as purchase_link_shortcuts_router
 
 from .utils.db_tools import with_db
+from .utils.job_status import reconcile_stale_job_statuses
+from .routers.games import METADATA_REFRESH_STATUS_FILE, COVER_SYNC_STATUS_FILE
+from .routers.storage import SYNC_STATUS_FILE
 from .utils.job_lock import try_job_lock
 
 
@@ -100,6 +103,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 if not list_all_locations(db):
                     print("[Startup] No locations found. Creating 'Default Storage' root.")
                     create_location(db, name="Default Storage", parent_id=None, type="root")
+
+                # A job killed by the last restart must not keep showing as "running".
+                for fixed in reconcile_stale_job_statuses([
+                    (METADATA_REFRESH_STATUS_FILE, "metadata-refresh"),
+                    (COVER_SYNC_STATUS_FILE, "cover-image-sync"),
+                    (SYNC_STATUS_FILE, "full-file-sync"),
+                ]):
+                    print(f"[Startup] marked stale job as interrupted: {fixed}")
 
                 if get_app_config_value(db, "is_firstrun_done") == "true":
                     await sync_player_perspectives(db)

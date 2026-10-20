@@ -5,7 +5,7 @@ from passlib.context import CryptContext
 
 from ..db import get_db
 from ..schemas.admin import LoginRequest
-from ..utils.auth import get_current_admin
+from ..utils.auth import get_current_admin, password_fingerprint
 from ..models.admin import AdminUser
 from ..utils.jwt import create_access_token
 from ..models.auth import PasswordChangeRequest
@@ -35,6 +35,7 @@ def login(request: Request, creds: LoginRequest):
             "sub": str(user.id),
             "username": user.username,
             "role": "admin",
+            "pwv": password_fingerprint(user.password_hash),  # ties the token to the current password
             "exp": datetime.now(timezone.utc) + timedelta(hours=24),
         }
         token = create_access_token(payload, db)
@@ -53,7 +54,8 @@ def change_password(
     Change the admin's password.
     - Verifies current password against stored hash.
     - Enforces minimum length of 6 characters for new password (via Pydantic model).
-    - On success, hashes and persists the new password.
+    - On success, hashes and persists the new password. Every login token issued before this
+      (including the caller's own) stops working: the caller must log in again.
     """
     if not pwd_context.verify(data.current_password, admin.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect current password")
@@ -62,4 +64,4 @@ def change_password(
     db.add(admin)
     db.commit()
 
-    return {"message": "Password changed successfully."}
+    return {"message": "Password changed successfully. Please log in again.", "relogin_required": True}

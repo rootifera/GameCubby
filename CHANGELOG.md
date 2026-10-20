@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Upgrade notes
+- **Everyone logs in once more.** Login tokens are now bound to the password they were issued for; tokens from
+  earlier releases are refused.
+- **Changing your password now signs you out everywhere** (including the browser you changed it in), so it can
+  also be used to cut off any session you don't trust. It also makes a leaked `SECRET_KEY` useless once the
+  password has changed.
+- **Behind a reverse proxy?** Set `PROXY=true` (it already controls secure cookies): the login rate limit then
+  counts failed logins per visitor, using `X-Forwarded-For`. `TRUSTED_PROXY_HOPS` (default `1`) says how many
+  proxies append to that header. Without `PROXY=true` the limit stays shared by everyone, as before.
+
+### Changes
+- **Login rate limit per visitor.** The API only ever saw the web server's address, so three bad guesses from
+  anyone (a scanner, an attacker) locked the real admin out for a minute, repeatably.
+- **Stale admin sessions send you to the login page** instead of leaving a logged-in-looking page where every
+  action fails with "Invalid token" (after a password change, a `SECRET_KEY` rotation, or token expiry).
+- **Logging out from another website is ignored** (it was a plain GET that any site could trigger).
+- **A job killed by an API restart no longer shows as "running" forever;** it is marked "interrupted" at startup.
+- **IGDB client:** honours `Retry-After` when rate-limited (capped at 10 s) and replaces a revoked or expired
+  token once instead of failing until it expires on its own.
+- The API route-inventory test now lists the cover, cover-sync, genre-suggestion, update-status and
+  delete-impact routes, so the test suite is green.
+
 - **Force-refreshing metadata** no longer zeroes every game's timestamp before contacting IGDB: a failed
   run (IGDB down, rate-limited, bad key) used to flag the whole library as "update available" and lose the
   stored timestamps. It now changes nothing on failure; one game's database error no longer fails the games

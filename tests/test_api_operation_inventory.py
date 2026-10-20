@@ -48,6 +48,13 @@ APPLICATION_OPERATIONS = {
     "PUT /games/{game_id}", "PUT /locations/{location_id}/rename", "PUT /wishlist/{wishlist_id}",
     "PUT /purchase-link-shortcuts/{shortcut_id}", "PUT /purchase-link-shortcuts/reorder",
     "DELETE /purchase-link-shortcuts/{shortcut_id}",
+    # Covers (cached IGDB covers + uploaded custom covers) and cover sync.
+    "GET /games/{game_id}/cover", "GET /games/{game_id}/cover/status",
+    "POST /games/{game_id}/cover", "DELETE /games/{game_id}/cover", "POST /games/{game_id}/cover/cache",
+    "POST /games/sync-cover-images", "GET /games/sync-cover-images/status",
+    # Public read-only status check, and the admin-only preview shown before "also delete files".
+    "GET /games/{game_id}/metadata-update-status", "GET /games/{game_id}/delete-impact",
+    "GET /search/suggest/genres",
 }
 
 
