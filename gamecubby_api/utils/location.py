@@ -331,3 +331,67 @@ def apply_order_renumbering(session: Session, root_id: int, include_children: bo
         raise
     plan["applied"] = True
     return plan
+
+
+def report_order_problems(session: Session) -> dict:
+    """
+    Read-only check of EVERY location's numbering: gaps (with the games on either side), duplicates, and
+    locations whose first game isn't #1. Locations that are fine are only counted. Writes nothing.
+    """
+    path_for = location_path_resolver(session)
+    rows = (
+        session.query(Game.id, Game.name, Game.location_id, Game.order)
+        .filter(Game.location_id.isnot(None), Game.order.isnot(None))
+        .all()
+    )
+    by_location: DefaultDict[int, list] = defaultdict(list)
+    for row in rows:
+        by_location[row.location_id].append(row)
+
+    def ref(r) -> dict:
+        return {"game_id": r.id, "name": r.name, "order": r.order}
+
+    problems = []
+    with_gaps = with_dups = not_one = 0
+    for location_id, games in by_location.items():
+        games = sorted(games, key=lambda r: (r.order, r.id))
+        groups: dict[int, list] = {}
+        for r in games:
+            groups.setdefault(r.order, []).append(r)
+        distinct = sorted(groups)
+
+        gaps = []
+        for prev, nxt in zip(distinct, distinct[1:]):
+            if nxt - prev > 1:
+                gaps.append({
+                    "start": prev + 1, "end": nxt - 1, "count": nxt - prev - 1,
+                    "after": ref(groups[prev][-1]), "before": ref(groups[nxt][0]),
+                })
+        duplicates = [{"order": o, "games": [ref(r) for r in members]} for o, members in groups.items() if len(members) > 1]
+        starts_at = distinct[0] if distinct[0] != 1 else None
+        if not (gaps or duplicates or starts_at):
+            continue
+
+        with_gaps += bool(gaps)
+        with_dups += bool(duplicates)
+        not_one += starts_at is not None
+        problems.append({
+            "location_id": location_id,
+            "path": [p["name"] for p in path_for(location_id)],
+            "games": len(games),
+            "starts_at": starts_at,
+            "gaps": gaps,
+            "duplicates": duplicates,
+            "fixable_changes": sum(1 for rank, r in enumerate(games, start=1) if r.order != rank),
+        })
+
+    problems.sort(key=lambda p: p["path"])
+    return {
+        "locations_checked": len(by_location),
+        "games_checked": len(rows),
+        "locations_ok": len(by_location) - len(problems),
+        "with_gaps": with_gaps,
+        "with_duplicates": with_dups,
+        "not_starting_at_1": not_one,
+        "problem_locations": problems,
+    }

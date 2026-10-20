@@ -4,7 +4,7 @@ from ..db import get_db
 from ..schemas.game import GameIdName
 from ..schemas.location import (
     Location as LocationSchema, LocationMigrationResult, LocationMigrationRequest,
-    FillOrderGapsRequest, FillOrderGapsResponse,
+    FillOrderGapsRequest, FillOrderGapsResponse, OrderReport,
 )
 from ..utils.game import list_games_by_location
 from ..utils.location import (
@@ -14,7 +14,7 @@ from ..utils.location import (
     list_child_locations,
     list_all_locations,
     delete_location, rename_location, migrate_location_games,
-    plan_order_renumbering, apply_order_renumbering, StaleOrderPlanError,
+    plan_order_renumbering, apply_order_renumbering, StaleOrderPlanError, report_order_problems,
 )
 from ..utils.auth import get_current_admin
 
@@ -45,6 +45,16 @@ def get_children(parent_id: int, db: Session = Depends(get_db)):
 @router.get("/", response_model=list[LocationSchema])
 def get_all_locations(db: Session = Depends(get_db)):
     return list_all_locations(db)
+
+
+@router.get("/order-report", response_model=OrderReport, dependencies=[Depends(get_current_admin)])
+def order_report(db: Session = Depends(get_db)):
+    """
+    Read-only report on the numbering of ALL locations: gaps (with the games either side of each),
+    duplicate numbers, and locations whose first game isn't #1. Nothing is changed.
+    (Declared before /{location_id} so "order-report" isn't parsed as a location id.)
+    """
+    return report_order_problems(db)
 
 
 @router.get("/{location_id}", response_model=LocationSchema)

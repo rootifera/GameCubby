@@ -69,3 +69,43 @@ class FillOrderGapsResponse(BaseModel):
     locations: list[OrderLocationPlan]
     total_games: int
     total_changed: int
+
+
+class OrderGameRef(BaseModel):
+    game_id: int
+    name: str
+    order: int
+
+
+class OrderGap(BaseModel):
+    """Numbers missing between two neighbouring games, e.g. #4 (and #5) missing between #3 and #6."""
+    start: int
+    end: int
+    count: int
+    after: OrderGameRef | None  # the game just before the gap
+    before: OrderGameRef | None  # the game just after the gap
+
+
+class OrderDuplicate(BaseModel):
+    order: int
+    games: list[OrderGameRef]
+
+
+class OrderProblemLocation(BaseModel):
+    location_id: int
+    path: list[str]
+    games: int
+    starts_at: int | None  # set when the first game isn't #1
+    gaps: list[OrderGap]
+    duplicates: list[OrderDuplicate]
+    fixable_changes: int  # how many games "Fill order gaps" would renumber here
+
+
+class OrderReport(BaseModel):
+    locations_checked: int  # locations that hold at least one numbered game
+    games_checked: int
+    locations_ok: int
+    with_gaps: int
+    with_duplicates: int
+    not_starting_at_1: int
+    problem_locations: list[OrderProblemLocation]

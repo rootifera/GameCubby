@@ -19,6 +19,10 @@
   CSV of every old → new number); applying writes exactly what was previewed, all-or-nothing, and is refused if
   the games changed in between. Games that share a number are split in the order they were added and listed so
   you can check them on the shelf; games without an order are left alone. A dual jewel case counts as one game.
+- **Find gaps** (same card). A read-only report on the numbering of **all** locations: gaps (with the games either
+  side of each), duplicate numbers, and locations whose first game isn't #1. Locations that are fine are only
+  counted. Each problem location has a button that selects it in the tree so you can preview the fix, and the
+  report can be downloaded as CSV.
 
 ### Changes
 - **Login rate limit per visitor.** The API only ever saw the web server's address, so three bad guesses from

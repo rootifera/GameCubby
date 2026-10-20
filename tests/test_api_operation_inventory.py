@@ -57,6 +57,8 @@ APPLICATION_OPERATIONS = {
     "GET /search/suggest/genres",
     # Location manager: renumber a shelf so its games count 1..N (preview, then apply).
     "POST /locations/{location_id}/fill-order-gaps",
+    # ...and a read-only report on gaps, duplicates and shelves not starting at 1, across ALL locations.
+    "GET /locations/order-report",
 }
 
 
