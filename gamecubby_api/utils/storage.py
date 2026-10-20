@@ -2,6 +2,7 @@ import re
 import os
 import uuid
 import asyncio
+import functools
 from pathlib import Path
 from typing import List, Tuple, Optional
 from urllib.parse import urlparse
@@ -18,14 +19,15 @@ import httpx
 from ..models.game import Game
 from ..models.storage import GameFile, FileCategory
 from ..utils.db_tools import with_db
-from ..utils.app_config import get_app_config_value
+from ..utils.app_config import get_app_config_value, get_app_config_value_cached
 
 STORAGE_ROOT = Path("./storage")
 UPLOADS_DIR = STORAGE_ROOT / "uploads"
 
 
 def _config_value(db: Session, key: str, default: str = "") -> str:
-    value = get_app_config_value(db, key)
+    # Cached for a few seconds: these are read many times per cover/download request.
+    value = get_app_config_value_cached(db, key)
     return (value if value is not None else default).strip()
 
 
@@ -82,7 +84,13 @@ def _s3_presign_base_url(db: Session) -> str:
     return value
 
 
-def _s3_client(db: Session, *, endpoint_url_override: str | None = None):
+@functools.lru_cache(maxsize=8)
+def _build_s3_client(endpoint_url: str, region: str, access_key: str, secret_key: str):
+    """
+    One boto3 client per distinct configuration. Building a client is expensive (it loads the
+    service model, ~10-30 ms of CPU) and used to happen on every single request; clients are
+    thread-safe, and a changed endpoint/key simply produces a new cache entry.
+    """
     try:
         import boto3
         from botocore.config import Config
@@ -90,11 +98,6 @@ def _s3_client(db: Session, *, endpoint_url_override: str | None = None):
         raise HTTPException(500, "boto3 is required for S3 storage") from exc
 
     kwargs = {}
-    endpoint_url = endpoint_url_override if endpoint_url_override is not None else _config_value(db, "s3_endpoint_url")
-    region = _config_value(db, "s3_region")
-    access_key = _config_value(db, "s3_access_key_id")
-    secret_key = _config_value(db, "s3_secret_access_key")
-
     if endpoint_url:
         kwargs["endpoint_url"] = endpoint_url
     if region:
@@ -109,6 +112,16 @@ def _s3_client(db: Session, *, endpoint_url_override: str | None = None):
         s3={"addressing_style": "path"},
     )
     return boto3.client("s3", **kwargs)
+
+
+def _s3_client(db: Session, *, endpoint_url_override: str | None = None):
+    endpoint_url = endpoint_url_override if endpoint_url_override is not None else _config_value(db, "s3_endpoint_url")
+    return _build_s3_client(
+        endpoint_url,
+        _config_value(db, "s3_region"),
+        _config_value(db, "s3_access_key_id"),
+        _config_value(db, "s3_secret_access_key"),
+    )
 
 
 def _s3_key(db: Session, game: Game, category: FileCategory, filename: str) -> str:
@@ -928,7 +941,7 @@ def remove_cached_cover(db: Session, game: Game) -> None:
         path.unlink()
 
 
-async def serve_game_cover(db: Session, game: Game) -> Response:
+def serve_game_cover(db: Session, game: Game) -> Response:
     """
     Return an HTTP response for the game's cover image.
     - cover_cached=True → serve from configured storage (presigned redirect or FileResponse)

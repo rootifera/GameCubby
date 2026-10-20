@@ -16,7 +16,7 @@ HTTP_TIMEOUT_SECONDS = float(os.getenv("IGDB_HTTP_TIMEOUT_SECONDS", "15"))
 HTTP_RETRIES = int(os.getenv("IGDB_HTTP_RETRIES", "2"))
 
 
-async def _post_with_retry(url: str, *, headers: dict | None = None, data: str | None = None,
+async def _post_with_retry(url: str, *, headers: dict | None = None, data: "str | dict | None" = None,
                            params: dict | None = None) -> httpx.Response:
     """POST to Twitch/IGDB with bounded retries for transient failures."""
     timeout = httpx.Timeout(HTTP_TIMEOUT_SECONDS, connect=min(10, HTTP_TIMEOUT_SECONDS))
@@ -68,9 +68,12 @@ async def get_igdb_token() -> str:
 
         client_id, client_secret = _get_configured_igdb_credentials()
 
+        # Sent as a form-encoded POST body, NOT as URL query parameters: httpx puts the URL in its
+        # error messages ("Client error '403' for url '...'"), which ended up in the logs with the
+        # client secret inside it.
         resp = await _post_with_retry(
             TOKEN_URL,
-            params={
+            data={
                 "client_id": client_id,
                 "client_secret": client_secret,
                 "grant_type": "client_credentials",

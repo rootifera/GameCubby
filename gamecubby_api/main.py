@@ -18,6 +18,9 @@ from typing import AsyncIterator
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError, TimeoutError as PoolTimeoutError
+import anyio.to_thread
+from .db import POOL_CAPACITY
 
 from .utils.playerperspective import sync_player_perspectives
 from .utils.mode import sync_modes
@@ -67,12 +70,28 @@ def _env_bool(name: str, default: bool) -> bool:
     return str(v).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def configure_threadpool() -> int:
+    """
+    Cap the request thread pool below the DB connection pool.
+
+    Sync endpoints (and the cleanup that hands their connection back) run in a thread pool of
+    40 by default, but each worker only has POOL_CAPACITY (20) connections. Under load, up to 40
+    threads then block waiting for a connection, the threads that could release one can't get
+    scheduled, and the worker stalls until the pool timeout. With fewer threads than connections
+    a thread never waits for one; extra requests queue cheaply for a thread instead.
+    """
+    tokens = max(1, int(os.getenv("THREADPOOL_SIZE", str(max(8, POOL_CAPACITY - 4)))))
+    anyio.to_thread.current_default_thread_limiter().total_tokens = tokens
+    return tokens
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     Startup tasks, but skip DB work entirely if maintenance mode is enabled.
     Also optionally runs a daily auto-backup loop if AUTOBACKUPS=yes.
     """
+    configure_threadpool()
     ensure_game_folders(autocreate_all=True)
 
     if not is_maintenance_enabled():
@@ -164,6 +183,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+@app.exception_handler(PoolTimeoutError)
+async def _database_busy(request: Request, exc: PoolTimeoutError) -> JSONResponse:
+    """No DB connection became free in time (load spike / flood): tell the client to retry."""
+    logging.getLogger("gamecubby.db").warning("database busy (pool exhausted): %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=503, content={"detail": "Database busy, please retry shortly"}, headers={"Retry-After": "2"})
+
+
+@app.exception_handler(OperationalError)
+async def _database_unavailable(request: Request, exc: OperationalError) -> JSONResponse:
+    """Database unreachable, restarting, or a statement hit the statement timeout."""
+    logging.getLogger("gamecubby.db").warning("database error: %s %s: %s", request.method, request.url.path, str(exc.orig)[:160])
+    return JSONResponse(status_code=503, content={"detail": "Database unavailable, please retry shortly"}, headers={"Retry-After": "5"})
 
 
 @app.middleware("http")

@@ -934,6 +934,19 @@ def _status_cache_put(key: tuple, value: dict) -> None:
     _status_cache[key] = (time.monotonic() + ttl, value)
 
 
+def lookup_metadata_status_inputs(game_id: int) -> Optional[dict]:
+    """
+    The only database work the status check needs, done in its own short session that is
+    closed before IGDB is contacted. (Holding a request-scoped session across the IGDB call
+    kept a connection checked out, idle, for the whole network round trip.)
+    """
+    with with_db() as db:
+        row = db.query(Game.igdb_id, Game.updated_at).filter(Game.id == game_id).first()
+    if row is None:
+        return None
+    return {"igdb_id": row.igdb_id, "local_updated_at": row.updated_at}
+
+
 async def check_game_metadata_status(session: Session, game_id: int) -> Optional[dict]:
     """
     Compare a game's local updated_at against IGDB's current value.
@@ -941,17 +954,21 @@ async def check_game_metadata_status(session: Session, game_id: int) -> Optional
     Returns a dict describing update availability without modifying any data.
     Results are cached (see above) so page views can't turn into a stream of IGDB requests.
     """
-    game = session.query(Game).filter_by(id=game_id).first()
-    if not game:
+    row = session.query(Game.igdb_id, Game.updated_at).filter(Game.id == game_id).first()
+    if row is None:
         return None
+    return await check_metadata_status_for(game_id, row.igdb_id, row.updated_at)
 
-    base = {"game_id": game_id, "igdb_id": game.igdb_id or None}
 
-    if not game.igdb_id or game.igdb_id == 0:
+async def check_metadata_status_for(game_id: int, igdb_id: Optional[int], local_updated_at: Optional[int]) -> dict:
+    """The status check itself: needs no database access."""
+    base = {"game_id": game_id, "igdb_id": igdb_id or None}
+
+    if not igdb_id:
         return {**base, "igdb_id": None, "checked": True, "update_available": False,
                 "message": "This game is not linked to IGDB."}
 
-    key = (game_id, game.igdb_id, game.updated_at)
+    key = (game_id, igdb_id, local_updated_at)
     cached = _status_cache_get(key)
     if cached is not None:
         return cached
@@ -961,12 +978,11 @@ async def check_game_metadata_status(session: Session, game_id: int) -> Optional
     if inflight is not None:
         return await asyncio.shield(inflight)
 
-    local_updated_at = game.updated_at
     future: asyncio.Future = asyncio.get_running_loop().create_future()
     _status_inflight[key] = future
     try:
         try:
-            raw = await fetch_igdb_game(game.igdb_id)
+            raw = await fetch_igdb_game(igdb_id)
         except Exception as exc:  # IGDB down / credentials missing: remember briefly, don't retry per page view
             logging.getLogger(__name__).warning("IGDB status check failed for game %s: %s", game_id, exc)
             raw = None

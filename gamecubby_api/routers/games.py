@@ -1,3 +1,4 @@
+from starlette.concurrency import run_in_threadpool
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from typing import List
@@ -24,7 +25,8 @@ from ..utils.game import (
     get_delete_impact,
     add_game_from_igdb,
     convert_igdb_game_to_custom,
-    check_game_metadata_status,
+    check_metadata_status_for,
+    lookup_metadata_status_inputs,
     refresh_game_metadata,
     refresh_all_games_metadata,
     force_refresh_metadata, list_games_preview, create_game_and_resolve_wishlist,
@@ -294,11 +296,14 @@ def add_game(game: GameCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/{game_id}/metadata-update-status")
-async def game_metadata_update_status(game_id: int, db: Session = Depends(get_db)):
-    status = await check_game_metadata_status(db, game_id)
-    if status is None:
+async def game_metadata_update_status(game_id: int):
+    # No `Depends(get_db)`: this handler awaits IGDB, and a request-scoped session would keep a
+    # pooled connection checked out (idle) during that network call. The lookup runs in the
+    # thread pool, in its own short session, so nothing blocks the event loop either.
+    inputs = await run_in_threadpool(lookup_metadata_status_inputs, game_id)
+    if inputs is None:
         raise HTTPException(404, "Game not found")
-    return status
+    return await check_metadata_status_for(game_id, inputs["igdb_id"], inputs["local_updated_at"])
 
 
 @router.post("/{game_id}/refresh_metadata", dependencies=[Depends(get_current_admin)])
@@ -340,12 +345,19 @@ async def force_refresh_metadata_endpoint(background_tasks: BackgroundTasks):
 # ---------------------------------------------------------------------------
 
 @router.get("/{game_id}/cover")
-async def get_cover(game_id: int, db: Session = Depends(get_db)):
-    """Serve the cover image. Returns cached local/S3 file or redirects to IGDB."""
+def get_cover(game_id: int, db: Session = Depends(get_db)):
+    """
+    Serve the cover image. Returns cached local/S3 file or redirects to IGDB.
+
+    A plain `def` on purpose: FastAPI runs it in its thread pool. As `async def` the blocking
+    database calls ran ON the event loop, and when the connection pool was exhausted each one
+    froze the whole worker for the pool timeout -- a flood of cover requests (every listing
+    page loads hundreds) could make the API unresponsive for minutes.
+    """
     game = db.get(GameModel, game_id)
     if not game:
         raise HTTPException(404, "Game not found")
-    return await serve_game_cover(db, game)
+    return serve_game_cover(db, game)
 
 
 @router.get("/{game_id}/cover/status")

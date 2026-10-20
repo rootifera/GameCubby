@@ -160,3 +160,28 @@ def test_status_check_never_modifies_the_game(monkeypatch):
     asyncio.run(game_utils.check_game_metadata_status(db, g.id))
     db.refresh(g)
     assert g.updated_at == 100  # a public visitor can't trigger/perform an update
+
+
+# ------------------------------------------------ secrets must never end up in URLs / logs
+
+def test_twitch_token_request_keeps_the_client_secret_out_of_the_url(monkeypatch):
+    from gamecubby_api.utils import external
+
+    seen = {}
+
+    async def fake_post(url, *, headers=None, data=None, params=None):
+        seen.update(url=url, data=data, params=params)
+
+        class R:
+            def json(self):
+                return {"access_token": "t", "expires_in": 3600}
+        return R()
+
+    monkeypatch.setattr(external, "_post_with_retry", fake_post)
+    monkeypatch.setattr(external, "_get_configured_igdb_credentials", lambda: ("the-id", "the-secret"))
+    monkeypatch.setattr(external, "_igdb_token", None)
+
+    asyncio.run(external.get_igdb_token())
+
+    assert "the-secret" not in seen["url"] and not seen["params"], "credentials must not travel in the URL"
+    assert seen["data"]["client_secret"] == "the-secret", "they go in the form body instead"
