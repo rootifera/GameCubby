@@ -185,3 +185,34 @@ def test_twitch_token_request_keeps_the_client_secret_out_of_the_url(monkeypatch
 
     assert "the-secret" not in seen["url"] and not seen["params"], "credentials must not travel in the URL"
     assert seen["data"]["client_secret"] == "the-secret", "they go in the form body instead"
+
+
+# ------------------- the public status route, end to end (router -> thread -> DB -> IGDB check)
+
+def test_status_endpoint_works_through_the_real_route(monkeypatch):
+    """Regression: the route once returned 500 (NameError) because only the inner functions were tested."""
+    from contextlib import contextmanager
+
+    db = _session()
+    linked = _game(db, igdb_id=77, updated_at=100)
+    custom = _game(db, igdb_id=0)
+
+    @contextmanager
+    def fake_with_db():
+        yield db
+
+    async def fake_fetch(igdb_id):
+        return {"updated_at": 200}
+
+    monkeypatch.setattr(game_utils, "with_db", fake_with_db)
+    monkeypatch.setattr(game_utils, "fetch_igdb_game", fake_fetch)
+    client = TestClient(app)
+
+    ok = client.get(f"/games/{linked.id}/metadata-update-status")
+    assert ok.status_code == 200
+    assert ok.json()["checked"] is True and ok.json()["update_available"] is True
+
+    not_linked = client.get(f"/games/{custom.id}/metadata-update-status")
+    assert not_linked.status_code == 200 and not_linked.json()["igdb_id"] is None
+
+    assert client.get("/games/987654/metadata-update-status").status_code == 404

@@ -2,6 +2,7 @@ import asyncio
 import logging
 import time
 from sqlalchemy.orm import Session
+from .db_tools import with_db
 from .formatting import format_igdb_game
 from .location import get_location_path, get_default_location_id
 from .mode import upsert_mode
