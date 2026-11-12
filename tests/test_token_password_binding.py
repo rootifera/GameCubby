@@ -6,7 +6,7 @@ current password hash's fingerprint.
 import pytest
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
-from jose import jwt as jose_jwt
+import jwt as pyjwt
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -77,7 +77,7 @@ def test_a_token_without_the_fingerprint_is_rejected(db):
 def test_a_forged_token_fails_even_with_the_leaked_secret_key_after_a_password_change(db):
     """The leaked-database scenario: attacker has SECRET_KEY and the OLD password hash."""
     old_hash = db.query(AdminUser).first().password_hash
-    forged = jose_jwt.encode({"sub": "1", "role": "admin", "pwv": auth.password_fingerprint(old_hash)}, "test-secret", algorithm="HS256")
+    forged = pyjwt.encode({"sub": "1", "role": "admin", "pwv": auth.password_fingerprint(old_hash)}, "test-secret", algorithm="HS256")
     assert auth.get_current_admin(_creds(forged), db).username == "admin", "valid until the password changes"
 
     user = db.query(AdminUser).first()

@@ -1,5 +1,6 @@
 from typing import Any
-from jose import jwt, JWTError
+import jwt
+from jwt import PyJWTError
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from .app_config import get_or_create_secret_key
@@ -29,5 +30,5 @@ def decode_access_token(token: str, db: Session | None = None) -> dict[str, Any]
     secret_key = _secret_key(db)
     try:
         return jwt.decode(token, secret_key, algorithms=[ALGORITHM])
-    except JWTError:
+    except PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
