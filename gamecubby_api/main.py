@@ -7,8 +7,6 @@ from pathlib import Path
 
 from .utils.app_config import get_app_config_value
 
-logging.getLogger("passlib.handlers.bcrypt").setLevel(logging.ERROR)
-
 from dotenv import load_dotenv
 
 load_dotenv()
