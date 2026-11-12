@@ -173,8 +173,8 @@ create_env_file() {
   [[ "$proxy" == "yes" ]] && proxy=true || proxy=false
 
   echo "Database passwords (leave empty to generate a random one)."
-  read -r -s -p "Database password: " db_pw || true; echo
-  read -r -s -p "Maintenance (backup/restore) role password: " maint_pw || true; echo
+  read -r -s -p "Database password (empty = random): " db_pw || true; echo
+  read -r -s -p "Maintenance (backup/restore) role password (empty = random): " maint_pw || true; echo
   [[ -n "$db_pw" ]] || { db_pw="$(random_secret)"; say "Generated a random database password."; }
   [[ -n "$maint_pw" ]] || { maint_pw="$(random_secret)"; say "Generated a random maintenance password."; }
 
