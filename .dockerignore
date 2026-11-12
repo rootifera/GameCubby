@@ -30,4 +30,4 @@ docs
 *.md
 openapi.json
 docker-compose*.yml
-update.sh
+deploy.sh

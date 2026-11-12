@@ -106,10 +106,104 @@ backup_before_update() {
   confirm "Continue updating WITHOUT a backup" || { warn "Aborted; nothing was changed."; exit 1; }
 }
 
-say "This will update code and images, then recreate affected services."
-if ! confirm "Proceed"; then
-  warn "Aborted by user."
-  exit 0
+ENV_FILE=".env"
+ENV_TEMPLATE=".env.default"
+
+# ask "Prompt" "default" -> echoes the answer (default when empty)
+ask() {
+  local ans
+  read -r -p "$1 [$2]: " ans || true
+  echo "${ans:-$2}"
+}
+
+ask_yes_no() {
+  local ans
+  while true; do
+    read -r -p "$1 [$2]: " ans || true
+    ans="${ans:-$2}"
+    case "${ans,,}" in
+      y|yes) echo "yes"; return 0 ;;
+      n|no)  echo "no";  return 0 ;;
+      *) echo "Please answer yes or no." >&2 ;;
+    esac
+  done
+}
+
+random_secret() {
+  if have_cmd openssl; then
+    openssl rand -hex 16
+  else
+    LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32
+  fi
+}
+
+# set_env KEY VALUE -> replaces KEY=... (or a commented #KEY=...) in $ENV_FILE, or appends it.
+set_env() {
+  local key="$1" value="$2" tmp
+  tmp="$(mktemp)"
+  if grep -qE "^#?${key}=" "$ENV_FILE"; then
+    awk -v k="$key" -v v="$value" '
+      !done && $0 ~ "^#?" k "=" { print k "=" v; done=1; next }
+      { print }' "$ENV_FILE" > "$tmp"
+  else
+    { cat "$ENV_FILE"; echo "${key}=${value}"; } > "$tmp"
+  fi
+  cat "$tmp" > "$ENV_FILE"
+  rm -f "$tmp"
+}
+
+create_env_file() {
+  warn "No ${ENV_FILE} found. Let's create one."
+  if [[ ! -f "$ENV_TEMPLATE" ]]; then
+    err "Template ${ENV_TEMPLATE} not found; cannot create ${ENV_FILE}."
+    exit 1
+  fi
+  cp "$ENV_TEMPLATE" "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
+
+  local web_port proxy db_pw maint_pw autobackups backup_time retention
+  web_port="$(ask "Web port to serve GameCubby on" "3000")"
+  until [[ "$web_port" =~ ^[0-9]+$ ]] && (( web_port >= 1 && web_port <= 65535 )); do
+    warn "Not a valid port."
+    web_port="$(ask "Web port to serve GameCubby on" "3000")"
+  done
+
+  echo "Behind a reverse proxy with HTTPS (NGINX, HAProxy, ...)? Answer 'no' if you access GameCubby via IP:PORT over HTTP."
+  proxy="$(ask_yes_no "Behind an HTTPS reverse proxy?" "no")"
+  [[ "$proxy" == "yes" ]] && proxy=true || proxy=false
+
+  echo "Database passwords (leave empty to generate a random one)."
+  read -r -s -p "Database password: " db_pw || true; echo
+  read -r -s -p "Maintenance (backup/restore) role password: " maint_pw || true; echo
+  [[ -n "$db_pw" ]] || { db_pw="$(random_secret)"; say "Generated a random database password."; }
+  [[ -n "$maint_pw" ]] || { maint_pw="$(random_secret)"; say "Generated a random maintenance password."; }
+
+  autobackups="$(ask_yes_no "Enable automatic daily backups?" "yes")"
+  set_env WEB_PORT "$web_port"
+  set_env PROXY "$proxy"
+  set_env DB_PASSWORD "$db_pw"
+  set_env MAINT_DB_PASSWORD "$maint_pw"
+  set_env AUTOBACKUPS "$autobackups"
+  if [[ "$autobackups" == "yes" ]]; then
+    backup_time="$(ask "Backup time (UTC, HH:MM)" "03:00")"
+    retention="$(ask "Days to keep auto backups" "14")"
+    set_env BACKUP_TIME "$backup_time"
+    set_env BACKUP_RETENTION_DAYS "$retention"
+  fi
+
+  say "Created ${ENV_FILE}. Review it for advanced options (pool sizes, paths, ...)."
+  warn "If a database volume already exists from an earlier install, the new DB passwords will NOT apply to it."
+}
+
+if [[ ! -f "$ENV_FILE" ]]; then
+  create_env_file
+  say "Continuing with the deployment."
+else
+  say "Found ${ENV_FILE}. This will update code and images, then recreate affected services."
+  if ! confirm "Proceed"; then
+    warn "Aborted by user."
+    exit 0
+  fi
 fi
 
 ensure_git_repo
@@ -161,4 +255,4 @@ else
   say "Skipping docker system prune."
 fi
 
-say "Update complete."
+say "Deploy complete."
