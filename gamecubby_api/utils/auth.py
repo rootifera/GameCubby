@@ -2,7 +2,7 @@ import hashlib
 import hmac
 from typing import Optional
 
-from passlib.context import CryptContext
+import bcrypt
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -15,7 +15,10 @@ security = HTTPBearer()
 
 security_optional = HTTPBearer(auto_error=False)
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# bcrypt only looks at the first 72 bytes of a password. passlib silently truncated longer
+# ones; bcrypt >= 5 raises instead. Truncating here keeps existing hashes (and long
+# passwords) working exactly as before.
+_BCRYPT_MAX_BYTES = 72
 
 
 def password_fingerprint(password_hash: str) -> str:
@@ -87,5 +90,17 @@ def get_current_admin_optional(
     return user
 
 
+def _bcrypt_input(password: str) -> bytes:
+    return password.encode("utf-8")[:_BCRYPT_MAX_BYTES]
+
+
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(_bcrypt_input(password), bcrypt.gensalt()).decode("ascii")
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    """True only when `password` matches `password_hash`; a malformed hash is just a mismatch."""
+    try:
+        return bcrypt.checkpw(_bcrypt_input(password), password_hash.encode("utf-8"))
+    except (ValueError, TypeError):
+        return False

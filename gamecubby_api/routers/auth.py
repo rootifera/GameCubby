@@ -1,19 +1,16 @@
 from fastapi import APIRouter, HTTPException, Depends, Request
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
-from passlib.context import CryptContext
 
 from ..db import get_db
 from ..schemas.admin import LoginRequest
-from ..utils.auth import get_current_admin, password_fingerprint
+from ..utils.auth import get_current_admin, hash_password, password_fingerprint, verify_password
 from ..models.admin import AdminUser
 from ..utils.jwt import create_access_token
 from ..models.auth import PasswordChangeRequest
 from ..utils.rate_limit import client_ip, check_rate_limit, note_fail, note_success
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 @router.post("/login")
@@ -25,7 +22,7 @@ def login(request: Request, creds: LoginRequest):
     db: Session = next(db_gen)
     try:
         user = db.query(AdminUser).filter_by(username=creds.username).first()
-        if not user or not pwd_context.verify(creds.password, user.password_hash):
+        if not user or not verify_password(creds.password, user.password_hash):
             note_fail(ip, creds.username)
             raise HTTPException(status_code=401, detail="Invalid credentials")
 
@@ -57,10 +54,10 @@ def change_password(
     - On success, hashes and persists the new password. Every login token issued before this
       (including the caller's own) stops working: the caller must log in again.
     """
-    if not pwd_context.verify(data.current_password, admin.password_hash):
+    if not verify_password(data.current_password, admin.password_hash):
         raise HTTPException(status_code=401, detail="Incorrect current password")
 
-    admin.password_hash = pwd_context.hash(data.new_password)
+    admin.password_hash = hash_password(data.new_password)
     db.add(admin)
     db.commit()
 
